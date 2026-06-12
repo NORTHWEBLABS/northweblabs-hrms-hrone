@@ -1020,3 +1020,4 @@
 | `updated_at` | `timestamptz` |  |
 
 # northweblabs-hrms
+# northweblabs-hrms-nextjs
