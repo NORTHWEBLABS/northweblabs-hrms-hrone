@@ -1,556 +1,276 @@
 "use client";
+// Route: app/(dashboard)/dashboard/page.tsx
+// ROLE-BASED: redirects employees to /me, shows admin dashboard for owner/admin/hr
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import {
-  Users, Clock, IndianRupee, AlertTriangle, CheckCircle2,
-  TrendingUp, FileText, Plus, ChevronRight, Calendar, Zap,
-  Bell, UserCheck, UserX, Coffee, Lock,
+  Users, Clock, IndianRupee, CheckCircle2, TrendingUp,
+  FileText, Plus, ChevronRight, Calendar, Zap, UserCheck,
+  Coffee, Loader2, AlertCircle, Building2, ClipboardCheck,
+  Bell, ArrowRight,
 } from "lucide-react";
 
-// ─── Stable Supabase client hook ─────────────────────────────────────────────
-function useSupabase() {
-  return useMemo(() =>
-    createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    ),
-  []);
-}
+function useSB() { return useMemo(() => createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!), []); }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface AttendanceSummary {
-  present: number;
-  absent: number;
-  onLeave: number;
-  total: number;
-}
+const fmtINR = (n: number) => n >= 100000 ? "₹" + (n / 100000).toFixed(1) + "L" : "₹" + n.toLocaleString("en-IN");
 
-interface ComplianceAlert {
-  id: string;
-  title: string;
-  category: "pf" | "esic" | "pt" | "tds" | "gst" | "labour";
-  due_date: string;
-  days_left: number;
-  penalty_if_missed: string;
-  status: "pending" | "done" | "overdue";
-}
-
-interface ActivityItem {
-  id: string;
-  type: "attendance" | "payroll" | "leave" | "employee" | "document";
-  message: string;
-  time: string;
-}
-
-interface DashboardData {
-  orgName: string;
-  attendance: AttendanceSummary;
-  payrollStatus: "draft" | "processing" | "completed" | "paid";
-  payrollTotal: number;
-  employeeCount: number;
-  complianceAlerts: ComplianceAlert[];
-  pendingLeaves: number;
-  activity: ActivityItem[];
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const fmtINR = (n: number) =>
-  n >= 100000 ? "₹" + (n / 100000).toFixed(1) + "L" : "₹" + n.toLocaleString("en-IN");
-
-const catBadge: Record<string, string> = {
-  pf: "bg-blue-100 text-blue-700",
-  esic: "bg-purple-100 text-purple-700",
-  pt: "bg-amber-100 text-amber-700",
-  tds: "bg-orange-100 text-orange-700",
-  gst: "bg-green-100 text-green-700",
-  labour: "bg-red-100 text-red-700",
-};
-
-function ActivityIcon({ type }: { type: ActivityItem["type"] }) {
-  const cfg: Record<string, { bg: string; icon: React.ReactNode }> = {
-    attendance: { bg: "bg-emerald-100", icon: <Clock className="w-3 h-3 text-emerald-600" /> },
-    leave:      { bg: "bg-amber-100",   icon: <Coffee className="w-3 h-3 text-amber-600" /> },
-    payroll:    { bg: "bg-indigo-100",  icon: <IndianRupee className="w-3 h-3 text-indigo-600" /> },
-    employee:   { bg: "bg-blue-100",    icon: <Users className="w-3 h-3 text-blue-600" /> },
-    document:   { bg: "bg-gray-100",    icon: <FileText className="w-3 h-3 text-gray-500" /> },
-  };
-  const c = cfg[type] ?? cfg.document;
-  return (
-    <div className={`w-6 h-6 rounded-full ${c.bg} flex items-center justify-center flex-shrink-0`}>
-      {c.icon}
-    </div>
-  );
-}
-
-function LockedOverlay({ label }: { label: string }) {
-  return (
-    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-xl bg-white/70 backdrop-blur-[3px]">
-      <div className="flex flex-col items-center gap-2 text-center px-4">
-        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
-          <Lock className="w-4 h-4 text-gray-400" />
-        </div>
-        <p className="text-xs font-semibold text-gray-700">{label}</p>
-        <button className="mt-1 px-3 py-1.5 bg-[#0f172a] text-white text-xs font-semibold rounded-lg hover:bg-[#1e293b] transition-colors flex items-center gap-1">
-          <TrendingUp className="w-3 h-3" />Upgrade
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Time / greeting hook ─────────────────────────────────────────────────────
-function useGreeting() {
-  const [greeting, setGreeting]   = useState("");
-  const [dateString, setDateString] = useState("");
-  const [currentTime, setCurrentTime] = useState("");
-
-  useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      const h = now.getHours();
-      setGreeting(h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening");
-      setCurrentTime(now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }));
-      setDateString(now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" }));
-    };
-    update();
-    const t = setInterval(update, 60000);
-    return () => clearInterval(t);
-  }, []);
-
-  return { greeting, dateString, currentTime };
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const supabase = useSupabase();
-  const { greeting, dateString, currentTime } = useGreeting();
+  const sb = useSB();
+  const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState("");
+  const [userName, setUserName] = useState("");
+  const [orgName, setOrgName] = useState("");
+  const [orgId, setOrgId] = useState("");
 
-  const [data, setData]           = useState<DashboardData | null>(null);
-  const [loading, setLoading]     = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
+  // Dashboard data
+  const [empCount, setEmpCount] = useState(0);
+  const [deptCount, setDeptCount] = useState(0);
+  const [presentToday, setPresentToday] = useState(0);
+  const [pendingLeaves, setPendingLeaves] = useState(0);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [recentEmployees, setRecentEmployees] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [deptBreakdown, setDeptBreakdown] = useState<{ name: string; count: number }[]>([]);
 
-  // ── Fetch all dashboard data ──
-  const fetchDashboard = useCallback(async () => {
+  const greet = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
+
+  const fetchData = useCallback(async () => {
     setLoading(true);
-    try {
-      // Resolve org_id — same priority as employees page
-      let orgId = "";
+    const email = localStorage.getItem("userEmail") || "";
+    const oid = localStorage.getItem("activeOrgId") || "";
 
-      // 1. localStorage (set by org switcher)
-      if (typeof window !== "undefined") {
-        orgId = localStorage.getItem("activeOrgId") || "";
-      }
+    if (!email) { setLoading(false); return; }
 
-      // 2. Logged-in user's org
-      if (!orgId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: ud } = await supabase
-            .from("users").select("org_id").eq("id", user.id).maybeSingle();
-          if (ud?.org_id) orgId = ud.org_id;
-        }
-      }
-
-      // 3. Dev fallback — first org in DB
-      if (!orgId) {
-        const { data: firstOrg } = await supabase
-          .from("organizations").select("id").order("created_at").limit(1).maybeSingle();
-        if (firstOrg?.id) orgId = firstOrg.id;
-      }
-
-      if (!orgId) { setLoading(false); return; }
-
-      const today        = new Date().toISOString().split("T")[0];
-      const currentMonth = new Date().getMonth() + 1;
-      const currentYear  = new Date().getFullYear();
-
-      const [
-        { data: employees },
-        { data: todayAttendance },
-        { data: payrollRun },
-        { data: complianceItems },
-        { data: pendingLeaves },
-        { data: org },
-      ] = await Promise.all([
-        supabase.from("employees").select("id").eq("org_id", orgId).eq("status", "active"),
-        supabase.from("attendance").select("status").eq("org_id", orgId).eq("date", today),
-        supabase.from("payroll_runs").select("status,total_net").eq("org_id", orgId).eq("month", currentMonth).eq("year", currentYear).maybeSingle(),
-        supabase.from("compliance_items").select("*").eq("org_id", orgId).eq("status", "pending").order("due_date").limit(5),
-        supabase.from("leaves").select("id").eq("org_id", orgId).eq("status", "pending"),
-        supabase.from("organizations").select("name").eq("id", orgId).single(),
-      ]);
-
-      const totalEmployees = employees?.length ?? 0;
-      const present  = todayAttendance?.filter((a) => a.status === "present").length ?? 0;
-      const onLeave  = todayAttendance?.filter((a) => ["half_day","leave"].includes(a.status)).length ?? 0;
-      const absent   = Math.max(0, totalEmployees - present - onLeave);
-
-      const enrichedCompliance = (complianceItems ?? []).map((item) => ({
-        ...item,
-        days_left: Math.ceil((new Date(item.due_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
-      })) as ComplianceAlert[];
-
-      const monthName = new Date().toLocaleString("en-IN", { month: "long" });
-
-      const activity: ActivityItem[] = [
-        { id:"1", type:"attendance", message:"Employees marking check-in via WhatsApp", time:"Live" },
-        { id:"2", type:"payroll",    message:`Payroll draft created for ${monthName} ${currentYear}`, time:"Today" },
-        { id:"3", type:"leave",      message:`${pendingLeaves?.length ?? 0} leave request${(pendingLeaves?.length ?? 0) !== 1 ? "s" : ""} pending approval`, time:"Today" },
-      ];
-
-      setData({
-        orgName:          (org as {name:string}|null)?.name ?? "Your Company",
-        attendance:       { present, absent, onLeave, total: totalEmployees },
-        payrollStatus:    (payrollRun as {status:DashboardData["payrollStatus"];total_net:number}|null)?.status ?? "draft",
-        payrollTotal:     (payrollRun as {status:string;total_net:number}|null)?.total_net ?? 0,
-        employeeCount:    totalEmployees,
-        complianceAlerts: enrichedCompliance,
-        pendingLeaves:    pendingLeaves?.length ?? 0,
-        activity,
-      });
-    } catch (err) {
-      console.error("Dashboard fetch error:", err);
-    } finally {
-      setLoading(false);
+    // Get user role
+    let role = "employee";
+    const { data: userRows } = await sb.from("users").select("id, full_name, role, org_id").eq("email", email);
+    if (userRows && userRows.length > 0) {
+      const superAdmin = userRows.find(u => u.role === "super_admin");
+      const orgUser = userRows.find(u => u.org_id === oid);
+      const picked = superAdmin || orgUser || userRows[0];
+      role = picked.role || "employee";
+      setUserName(picked.full_name || email.split("@")[0]);
+      if (!oid && picked.org_id) { setOrgId(picked.org_id); localStorage.setItem("activeOrgId", picked.org_id); }
     }
-  }, [supabase]);
 
-  useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
+    // Also check employees table
+    if (role === "employee" && oid) {
+      const { data: emp } = await sb.from("employees").select("role").eq("email", email).eq("org_id", oid).maybeSingle();
+      if (emp?.role && emp.role !== "employee") role = emp.role;
+    }
 
-  // Re-fetch when org is switched from sidebar
-  useEffect(() => {
-    const handler = () => { fetchDashboard(); };
-    window.addEventListener("orgSwitch", handler);
-    return () => window.removeEventListener("orgSwitch", handler);
-  }, [fetchDashboard]);
+    setUserRole(role);
 
-  // ── Loading state ──
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full min-h-[60vh]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-400">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
+    // Redirect based on role
+    if (role === "super_admin") { window.location.href = "/organizations"; return; }
+    if (role === "employee") { window.location.href = "/me"; return; }
 
-  const d            = data;
-  const attendance   = d?.attendance ?? { present:0, absent:0, onLeave:0, total:0 };
-  const presentPct   = attendance.total > 0 ? Math.round((attendance.present / attendance.total) * 100) : 0;
-  const monthName    = new Date().toLocaleString("en-IN", { month:"long", year:"numeric" });
-  const urgentAlert  = d?.complianceAlerts.find((c) => c.days_left <= 1);
+    // For owner/admin/hr/manager — load admin dashboard
+    const resolvedOrgId = oid || orgId;
+    if (!resolvedOrgId) { setLoading(false); return; }
+    setOrgId(resolvedOrgId);
 
-  const stats = [
-    { label:"Total employees",   value: d?.employeeCount ?? 0,
-      sub:"Active headcount",    icon:<Users className="w-4 h-4"/>,      tc:"text-blue-600",   bc:"bg-blue-50",   href:"/employees" },
-    { label:"Present today",     value:`${attendance.present}/${attendance.total}`,
-      sub:`${presentPct}% attendance rate`, icon:<UserCheck className="w-4 h-4"/>, tc:"text-emerald-600", bc:"bg-emerald-50", href:"/attendance" },
-    { label:`${new Date().toLocaleString("en-IN",{month:"long"})} payroll`,
-      value: d?.payrollTotal ? fmtINR(d.payrollTotal) : "Not run",
-      sub: d?.payrollStatus === "draft" ? "Draft — not processed" : `Status: ${d?.payrollStatus ?? "—"}`,
-      icon:<IndianRupee className="w-4 h-4"/>, tc:"text-indigo-600", bc:"bg-indigo-50", href:"/payroll" },
-    { label:"Pending leaves",    value: d?.pendingLeaves ?? 0,
-      sub:"Awaiting your approval", icon:<Calendar className="w-4 h-4"/>, tc:"text-amber-600", bc:"bg-amber-50", href:"/leaves" },
-  ];
+    // Get org name
+    const { data: org } = await sb.from("organizations").select("name, brand_name").eq("id", resolvedOrgId).maybeSingle();
+    setOrgName(org?.brand_name || org?.name || "");
+
+    const today = new Date().toISOString().split("T")[0];
+    const userId = userRows?.find(u => u.org_id === resolvedOrgId)?.id || userRows?.[0]?.id;
+
+    const [emps, depts, att, leaves, approvals, notifs] = await Promise.all([
+      sb.from("employees").select("id, full_name, department, designation, status, created_at, role").eq("org_id", resolvedOrgId).eq("status", "active").order("created_at", { ascending: false }),
+      sb.from("departments").select("id, name").eq("org_id", resolvedOrgId),
+      sb.from("attendance").select("status").eq("org_id", resolvedOrgId).eq("date", today),
+      sb.from("leaves").select("id").eq("org_id", resolvedOrgId).eq("status", "pending"),
+      sb.from("approval_requests").select("id").eq("org_id", resolvedOrgId).eq("status", "pending"),
+      userId ? sb.from("notifications").select("id, title, body, type, read, created_at").eq("user_id", userId).eq("read", false).order("created_at", { ascending: false }).limit(5) : Promise.resolve({ data: [] }),
+    ]);
+
+    const employees = emps.data || [];
+    setEmpCount(employees.length);
+    setDeptCount((depts.data || []).length);
+    setPresentToday((att.data || []).filter(a => ["present","late","wfh"].includes(a.status)).length);
+    setPendingLeaves((leaves.data || []).length);
+    setPendingApprovals((approvals.data || []).length);
+    setRecentEmployees(employees.slice(0, 5));
+    setNotifications((notifs.data || []) as any[]);
+
+    // Department breakdown
+    const deptMap: Record<string, number> = {};
+    employees.forEach(e => { const d = e.department || "Unassigned"; deptMap[d] = (deptMap[d] || 0) + 1; });
+    setDeptBreakdown(Object.entries(deptMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count));
+
+    setLoading(false);
+  }, [sb, orgId]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  if (loading) return <div className="flex items-center justify-center h-[60vh]"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div>;
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const presentPct = empCount > 0 ? Math.round((presentToday / empCount) * 100) : 0;
+  const deptColors = ["bg-indigo-500","bg-emerald-500","bg-amber-500","bg-rose-500","bg-violet-500","bg-cyan-500","bg-blue-500","bg-pink-500"];
 
   return (
-    <div className="flex flex-col gap-5">
-
-      {/* ── Header ── */}
-      <div className="flex items-start justify-between">
+    <div className="max-w-[1200px] mx-auto">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-lg font-bold text-gray-900">
-            {greeting}{d?.orgName ? `, ${d.orgName.split(" ")[0]}` : ""}
-          </h1>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {dateString}{currentTime ? ` · ${currentTime}` : ""}
-          </p>
+          <h1 className="text-xl font-bold text-gray-900">{greet()}, {userName.split(" ")[0]}</h1>
+          <p className="text-sm text-gray-400">{dateStr} · {orgName}</p>
         </div>
-        <div className="relative">
-          <button
-            onClick={() => setNotifOpen((p) => !p)}
-            className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <Bell className="w-4 h-4 text-gray-500" />
-            {(urgentAlert || (d?.pendingLeaves ?? 0) > 0) && (
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 rounded-full" />
-            )}
-          </button>
-          {notifOpen && (
-            <div className="absolute right-0 top-11 w-72 bg-white rounded-xl border border-gray-200 shadow-xl z-50 py-1">
-              <p className="text-xs font-semibold text-gray-500 px-4 pt-2 pb-1.5">Notifications</p>
-              {urgentAlert && (
-                <div className="flex gap-2.5 px-4 py-2.5 hover:bg-gray-50 border-l-2 border-red-400 cursor-pointer">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
-                  <p className="text-xs text-gray-600">{urgentAlert.title} due {urgentAlert.days_left <= 0 ? "today" : "tomorrow"}</p>
-                </div>
-              )}
-              {(d?.pendingLeaves ?? 0) > 0 && (
-                <div className="flex gap-2.5 px-4 py-2.5 hover:bg-gray-50 cursor-pointer">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
-                  <p className="text-xs text-gray-600">{d?.pendingLeaves} leave request{(d?.pendingLeaves ?? 0) > 1 ? "s" : ""} pending</p>
-                </div>
-              )}
-              {d?.payrollStatus === "draft" && (
-                <div className="flex gap-2.5 px-4 py-2.5 hover:bg-gray-50 cursor-pointer">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 flex-shrink-0" />
-                  <p className="text-xs text-gray-600">{new Date().toLocaleString("en-IN",{month:"long"})} payroll not processed yet</p>
-                </div>
-              )}
+        <div className="flex items-center gap-2">
+          {notifications.length > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+              <Bell className="w-3.5 h-3.5 text-amber-600" />
+              <span className="text-xs font-semibold text-amber-700">{notifications.length} new</span>
             </div>
           )}
+          <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-lg capitalize">{userRole}</span>
         </div>
       </div>
 
-      {/* ── Urgent banner ── */}
-      {urgentAlert && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
-          <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
-          <p className="text-sm text-red-700 flex-1">
-            <span className="font-semibold">Urgent:</span>{" "}
-            {urgentAlert.title} is due {urgentAlert.days_left <= 0 ? "today" : "tomorrow"}.
-            Penalty: {urgentAlert.penalty_if_missed}
-          </p>
-          <button className="flex-shrink-0 px-3 py-1 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors">
-            Mark done
-          </button>
-        </div>
-      )}
-
-      {/* ── Stat cards ── */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        {stats.map((s) => (
-          <Link key={s.label} href={s.href}
-            className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3 hover:border-indigo-200 hover:shadow-sm transition-all cursor-pointer">
-            <div className={`w-9 h-9 rounded-lg ${s.bc} ${s.tc} flex items-center justify-center flex-shrink-0`}>
-              {s.icon}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs text-gray-500 truncate">{s.label}</p>
-              <p className="text-xl font-bold text-gray-900 leading-tight">{s.value}</p>
-              <p className="text-xs text-gray-400 truncate">{s.sub}</p>
-            </div>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+        {[
+          { label: "Employees", value: empCount, sub: "Active", icon: <Users className="w-4 h-4" />, bg: "bg-blue-50", tc: "text-blue-600", href: "/employees" },
+          { label: "Present today", value: `${presentToday}/${empCount}`, sub: `${presentPct}%`, icon: <UserCheck className="w-4 h-4" />, bg: "bg-emerald-50", tc: "text-emerald-600", href: "/attendance" },
+          { label: "Departments", value: deptCount, sub: "Active", icon: <Building2 className="w-4 h-4" />, bg: "bg-violet-50", tc: "text-violet-600", href: "/employees" },
+          { label: "Pending leaves", value: pendingLeaves, sub: "To review", icon: <Coffee className="w-4 h-4" />, bg: "bg-amber-50", tc: "text-amber-600", href: "/leaves" },
+          { label: "Approvals", value: pendingApprovals, sub: "Pending", icon: <ClipboardCheck className="w-4 h-4" />, bg: "bg-rose-50", tc: "text-rose-600", href: "/approvals" },
+        ].map(s => (
+          <Link key={s.label} href={s.href} className="bg-white rounded-xl border border-gray-100 p-4 hover:border-indigo-200 hover:shadow-sm transition">
+            <div className={`w-8 h-8 ${s.bg} rounded-lg flex items-center justify-center ${s.tc} mb-2`}>{s.icon}</div>
+            <p className="text-lg font-bold text-gray-900">{s.value}</p>
+            <p className="text-[10px] text-gray-400">{s.sub}</p>
           </Link>
         ))}
       </div>
 
-      {/* ── Main grid ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-
-        {/* Left 2/3 */}
-        <div className="xl:col-span-2 flex flex-col gap-4">
+      <div className="grid grid-cols-12 gap-5">
+        {/* Left — 8 cols */}
+        <div className="col-span-12 lg:col-span-8 space-y-5">
 
           {/* Attendance bar */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="bg-white rounded-xl border border-gray-100 p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-800">Today&apos;s attendance</h3>
-              <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />Live
-              </span>
+              <h3 className="text-sm font-bold text-gray-900">Today's attendance</h3>
+              <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />Live</span>
             </div>
-            <div className="flex h-2 rounded-full overflow-hidden gap-0.5 mb-4">
-              {attendance.total > 0 ? (
-                <>
-                  <div className="bg-emerald-500 rounded-full transition-all duration-500" style={{ width:`${(attendance.present/attendance.total)*100}%` }} />
-                  <div className="bg-red-400 rounded-full transition-all duration-500"    style={{ width:`${(attendance.absent/attendance.total)*100}%` }} />
-                  <div className="bg-amber-400 rounded-full transition-all duration-500"  style={{ width:`${(attendance.onLeave/attendance.total)*100}%` }} />
-                </>
-              ) : (
-                <div className="bg-gray-200 rounded-full w-full" />
-              )}
+            <div className="flex h-2.5 rounded-full overflow-hidden gap-0.5 mb-4">
+              {empCount > 0 ? (<>
+                <div className="bg-emerald-500 rounded-full transition-all" style={{ width: `${(presentToday/empCount)*100}%` }} />
+                <div className="bg-red-400 rounded-full transition-all" style={{ width: `${((empCount-presentToday)/empCount)*100}%` }} />
+              </>) : <div className="bg-gray-200 rounded-full w-full" />}
             </div>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              {([
-                ["Present",  attendance.present,  "bg-emerald-500","text-emerald-600"],
-                ["Absent",   attendance.absent,   "bg-red-400",    "text-red-500"],
-                ["On Leave", attendance.onLeave,  "bg-amber-400",  "text-amber-600"],
-              ] as [string,number,string,string][]).map(([l,v,dot,c]) => (
-                <div key={l}>
-                  <div className="flex items-center justify-center gap-1.5 mb-1">
-                    <div className={`w-2 h-2 rounded-full ${dot}`} />
-                    <span className="text-xs text-gray-500">{l}</span>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              {[
+                ["Present", presentToday, "text-emerald-600", "bg-emerald-500"],
+                ["Absent", empCount - presentToday, "text-red-500", "bg-red-400"],
+                ["Total", empCount, "text-gray-700", "bg-gray-400"],
+              ].map(([l, v, c, dot]) => (
+                <div key={l as string}><div className="flex items-center justify-center gap-1.5 mb-1"><div className={`w-2 h-2 rounded-full ${dot}`} /><span className="text-xs text-gray-500">{l}</span></div><p className={`text-xl font-bold ${c}`}>{v}</p></div>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Add employee", icon: <Plus className="w-4 h-4" />, href: "/employees", bg: "bg-blue-50 text-blue-600 border-blue-100" },
+              { label: "Run payroll", icon: <IndianRupee className="w-4 h-4" />, href: "/payroll", bg: "bg-indigo-50 text-indigo-600 border-indigo-100" },
+              { label: "Review leaves", icon: <Coffee className="w-4 h-4" />, href: "/leaves", bg: "bg-amber-50 text-amber-600 border-amber-100" },
+              { label: "Approvals", icon: <ClipboardCheck className="w-4 h-4" />, href: "/approvals", bg: "bg-rose-50 text-rose-600 border-rose-100" },
+            ].map(a => (
+              <Link key={a.label} href={a.href} className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm font-medium hover:shadow-sm transition ${a.bg}`}>{a.icon}{a.label}</Link>
+            ))}
+          </div>
+
+          {/* Recent employees */}
+          <div className="bg-white rounded-xl border border-gray-100 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-gray-900">Recent team members</h3>
+              <Link href="/employees" className="text-xs text-indigo-600 font-semibold flex items-center gap-0.5">View all<ChevronRight className="w-3 h-3" /></Link>
+            </div>
+            {recentEmployees.length === 0 ? (
+              <div className="text-center py-8"><Users className="w-8 h-8 text-gray-200 mx-auto mb-2" /><p className="text-sm text-gray-400">No employees yet</p>
+                <Link href="/employees" className="mt-2 inline-flex items-center gap-1 text-xs text-indigo-600 font-semibold"><Plus className="w-3 h-3" />Add first employee</Link>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {recentEmployees.map(emp => (
+                  <div key={emp.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                      {(emp.full_name || "?").split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{emp.full_name}</p>
+                      <p className="text-xs text-gray-400">{emp.designation || emp.department || "—"}</p>
+                    </div>
+                    <span className="text-[10px] text-gray-400">{emp.role !== "employee" ? emp.role : ""}</span>
                   </div>
-                  <p className="text-lg font-bold text-gray-900">{v}</p>
-                  <p className={`text-xs ${c}`}>
-                    {attendance.total > 0 ? Math.round((v / attendance.total) * 100) : 0}%
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Payroll card + Quick actions */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-            {/* Payroll */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-800">Payroll — {monthName}</h3>
-                <span className={`px-2 py-0.5 rounded-md text-xs font-semibold ${
-                  d?.payrollStatus === "paid"       ? "bg-emerald-100 text-emerald-700" :
-                  d?.payrollStatus === "completed"  ? "bg-blue-100 text-blue-700"      :
-                  d?.payrollStatus === "processing" ? "bg-amber-100 text-amber-700"    :
-                                                      "bg-gray-100 text-gray-600"
-                }`}>
-                  {d?.payrollStatus
-                    ? d.payrollStatus.charAt(0).toUpperCase() + d.payrollStatus.slice(1)
-                    : "Draft"}
-                </span>
+                ))}
               </div>
-              <p className="text-2xl font-bold text-gray-900">
-                {d?.payrollTotal ? fmtINR(d.payrollTotal) : "—"}
-              </p>
-              <p className="text-xs text-gray-400 mt-0.5 mb-4">
-                {d?.employeeCount} employees
-              </p>
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-4">
-                <div className="h-full bg-indigo-500 rounded-full transition-all" style={{
-                  width: d?.payrollStatus === "paid"       ? "100%" :
-                         d?.payrollStatus === "completed"  ? "75%"  :
-                         d?.payrollStatus === "processing" ? "40%"  : "5%"
-                }}/>
-              </div>
-              <Link href="/payroll"
-                className="w-full py-2 bg-[#0f172a] text-white text-xs font-semibold rounded-lg hover:bg-[#1e293b] transition-colors flex items-center justify-center gap-1.5">
-                <Zap className="w-3.5 h-3.5" />
-                {d?.payrollStatus === "draft" ? "Process payroll" : "View payroll run"}
-              </Link>
-            </div>
-
-            {/* Quick actions + WhatsApp */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3">
-              <h3 className="text-sm font-semibold text-gray-800">Quick actions</h3>
-              <div className="grid grid-cols-2 gap-2">
-                <Link href="/attendance"
-                  className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-colors bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100">
-                  <UserCheck className="w-3.5 h-3.5"/>Mark attendance
-                </Link>
-                <Link href="/employees"
-                  className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-colors bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100">
-                  <Plus className="w-3.5 h-3.5"/>Onboard employee
-                </Link>
-                <Link href="/payroll"
-                  className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-colors bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100">
-                  <IndianRupee className="w-3.5 h-3.5"/>Run payroll
-                </Link>
-                <Link href="/documents"
-                  className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-colors bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100">
-                  <FileText className="w-3.5 h-3.5"/>Generate doc
-                </Link>
-              </div>
-              <div className="pt-2 border-t border-gray-100">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-medium text-gray-700">WhatsApp bot</span>
-                  <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>Live
-                  </span>
-                </div>
-                <div className="bg-gray-50 rounded-lg px-3 py-2 font-mono text-xs text-gray-500">
-                  <span className="text-emerald-600">+91 98765:</span> IN<br/>
-                  <span className="text-gray-400">→ Check-in ✓ just now</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Activity */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-800">Recent activity</h3>
-              <button className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5">
-                View all <ChevronRight className="w-3 h-3"/>
-              </button>
-            </div>
-            <div className="flex flex-col">
-              {(d?.activity ?? []).map((item, i) => (
-                <div key={item.id} className={`flex items-start gap-3 py-2.5 ${i < (d?.activity.length ?? 0) - 1 ? "border-b border-gray-100" : ""}`}>
-                  <ActivityIcon type={item.type}/>
-                  <p className="flex-1 text-xs text-gray-600 leading-snug">{item.message}</p>
-                  <span className="text-xs text-gray-400 flex-shrink-0">{item.time}</span>
-                </div>
-              ))}
-            </div>
+            )}
           </div>
         </div>
 
-        {/* Right column */}
-        <div className="flex flex-col gap-4">
+        {/* Right — 4 cols */}
+        <div className="col-span-12 lg:col-span-4 space-y-5">
 
-          {/* Compliance */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 relative overflow-hidden">
-            {(d?.complianceAlerts.length === 0) && <LockedOverlay label="Compliance module"/>}
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-800">Compliance alerts</h3>
-              <Bell className="w-3.5 h-3.5 text-gray-400"/>
-            </div>
-            <div className="flex flex-col gap-2">
-              {(d?.complianceAlerts ?? []).sort((a,b) => a.days_left - b.days_left).map((item) => (
-                <div key={item.id} className={`flex items-center justify-between p-2.5 rounded-lg border
-                  ${item.days_left <= 3 ? "bg-red-50 border-red-200" : item.days_left <= 7 ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-200"}`}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`px-1.5 py-0.5 rounded text-xs font-bold flex-shrink-0 ${catBadge[item.category]}`}>
-                      {item.category.toUpperCase()}
-                    </span>
-                    <p className="text-xs text-gray-700 truncate">{item.title}</p>
-                  </div>
-                  <span className={`flex-shrink-0 ml-2 text-xs font-bold
-                    ${item.days_left <= 3 ? "text-red-600" : item.days_left <= 7 ? "text-amber-600" : "text-emerald-600"}`}>
-                    {item.days_left <= 0 ? "Today" : item.days_left === 1 ? "Tmrw" : `${item.days_left}d`}
-                  </span>
-                </div>
-              ))}
-              {(d?.complianceAlerts.length === 0) && [1,2,3].map(i => (
-                <div key={i} className="h-10 bg-gray-100 rounded-lg animate-pulse"/>
-              ))}
-            </div>
-          </div>
-
-          {/* Pending approvals */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
+          {/* Notifications */}
+          <div className="bg-white rounded-xl border border-gray-100 p-5">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-800">Pending approvals</h3>
-              {(d?.pendingLeaves ?? 0) > 0 && (
-                <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-xs flex items-center justify-center font-bold">
-                  {d?.pendingLeaves}
-                </span>
-              )}
+              <h3 className="text-sm font-bold text-gray-900">Notifications</h3>
+              {notifications.length > 0 && <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full">{notifications.length}</span>}
             </div>
-            {(d?.pendingLeaves ?? 0) === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-4">
-                <CheckCircle2 className="w-8 h-8 text-emerald-300"/>
-                <p className="text-xs text-gray-400">All caught up</p>
-              </div>
+            {notifications.length === 0 ? (
+              <div className="text-center py-6"><Bell className="w-7 h-7 text-gray-200 mx-auto mb-2" /><p className="text-xs text-gray-400">All caught up</p></div>
             ) : (
-              <p className="text-xs text-gray-500 leading-relaxed">
-                {d?.pendingLeaves} leave request{(d?.pendingLeaves ?? 0) > 1 ? "s" : ""} waiting.{" "}
-                <Link href="/leaves" className="text-indigo-600 font-semibold hover:underline">Review now →</Link>
-              </p>
+              <div className="space-y-2">
+                {notifications.map(n => (
+                  <div key={n.id} className="p-2.5 bg-amber-50 border border-amber-100 rounded-lg">
+                    <p className="text-xs font-semibold text-gray-900">{n.title}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">{n.body}</p>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
-          {/* Month snapshot */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Calendar className="w-4 h-4 text-gray-400"/>
-              <h3 className="text-sm font-semibold text-gray-800">
-                {new Date().toLocaleString("en-IN",{month:"long"})} at a glance
-              </h3>
-            </div>
-            {([
-              ["Attendance rate",   `${presentPct}%`,                    presentPct >= 85 ? "text-emerald-600" : "text-amber-600"],
-              ["Payroll status",    d?.payrollStatus ? d.payrollStatus.charAt(0).toUpperCase()+d.payrollStatus.slice(1) : "—", "text-indigo-600"],
-              ["Pending leaves",    `${d?.pendingLeaves ?? 0}`,           "text-amber-600"],
-              ["Active employees",  `${d?.employeeCount ?? 0}`,           "text-blue-600"],
-              ["Compliance due",    `${d?.complianceAlerts.length ?? 0} pending`, "text-red-600"],
-            ] as [string,string,string][]).map(([label, value, color]) => (
-              <div key={label} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
-                <span className="text-xs text-gray-500">{label}</span>
-                <span className={`text-xs font-bold ${color}`}>{value}</span>
+          {/* Department breakdown */}
+          <div className="bg-white rounded-xl border border-gray-100 p-5">
+            <h3 className="text-sm font-bold text-gray-900 mb-3">Department breakdown</h3>
+            {deptBreakdown.length === 0 ? (
+              <div className="text-center py-4"><Building2 className="w-6 h-6 text-gray-200 mx-auto mb-2" /><p className="text-xs text-gray-400">No departments</p></div>
+            ) : (
+              <div className="space-y-2.5">
+                {deptBreakdown.map((d, i) => (
+                  <div key={d.name}>
+                    <div className="flex justify-between text-xs mb-1"><span className="text-gray-600">{d.name}</span><span className="font-bold text-gray-900">{d.count}</span></div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className={`h-full ${deptColors[i % deptColors.length]} rounded-full`} style={{ width: `${(d.count / empCount) * 100}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* System status */}
+          <div className="bg-white rounded-xl border border-gray-100 p-5">
+            <h3 className="text-sm font-bold text-gray-900 mb-3">System status</h3>
+            {[
+              { l: "Platform", v: "Operational", c: "text-emerald-600" },
+              { l: "WhatsApp Bot", v: "Connected", c: "text-emerald-600" },
+              { l: "Email (Resend)", v: "Active", c: "text-emerald-600" },
+            ].map(s => (
+              <div key={s.l} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                <span className="text-xs text-gray-500">{s.l}</span>
+                <span className={`text-xs font-semibold ${s.c} flex items-center gap-1`}><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{s.v}</span>
               </div>
             ))}
           </div>

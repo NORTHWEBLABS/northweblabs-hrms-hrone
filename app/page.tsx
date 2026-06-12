@@ -1,762 +1,770 @@
-"use client";
+import Footer from '@/components/Footer';
+import Link from 'next/link';
+import React from 'react';
 
-import { useState, useEffect, useRef } from "react";
-import Image from "next/image";
-import {
-  Users, Rocket, IndianRupee, Umbrella, BarChart2, Shield,
-} from "lucide-react";
+/* ============================================================
+   NorthWeb Labs — Marketing Landing Page
+   Single-file Next.js App Router page (app/page.tsx)
+   All CTAs / nav / footer items are wired as links:
+     Get started / Start free  -> /signup
+     Sign in                   -> /login
+     Book a demo               -> /demo
+     Talk to sales             -> /contact
+     See it in action          -> /demo
+     Explore People            -> /product/people
+     Nav + footer              -> respective routes
+   ============================================================ */
 
-// ─── Isometric City Illustration (SVG) ────────────────────────────────────────
+const ArrowRight = ({ size = 16 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M5 12h14" />
+    <path d="m13 6 6 6-6 6" />
+  </svg>
+);
 
-function IsometricCity() {
-  return (
-    <svg
-      viewBox="0 0 520 440"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="w-full h-full"
-      aria-label="Isometric city illustration representing an HR platform"
-    >
-      {/* Ground grid platform */}
-      <g opacity="0.5">
-        {/* Grid lines horizontal */}
-        {[0,1,2,3,4,5,6].map((i) => (
-          <line
-            key={`h${i}`}
-            x1={160 + i * 30}
-            y1={220 + i * 17}
-            x2={320 + i * 30}
-            y2={220 + i * 17}
-            stroke="#c7d2fe"
-            strokeWidth="0.5"
-          />
-        ))}
-        {/* Grid lines vertical */}
-        {[0,1,2,3,4,5,6,7].map((i) => (
-          <line
-            key={`v${i}`}
-            x1={160 + i * 25}
-            y1={220}
-            x2={160 + i * 25 - 30}
-            y2={322}
-            stroke="#c7d2fe"
-            strokeWidth="0.5"
-          />
-        ))}
-      </g>
+const CheckIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
 
-      {/* Base platform outline */}
-      <polygon
-        points="260,190 430,275 340,360 170,275"
-        fill="#f0f4ff"
-        stroke="#6366f1"
-        strokeWidth="1"
-        opacity="0.6"
-      />
+const Logo = ({ light = false }: { light?: boolean }) => (
+  <Link href="/" className="logo" aria-label="NorthWeb Labs home">
+    <span className="logo-mark" aria-hidden="true">N</span>
+    <span className={`logo-text ${light ? 'light' : ''}`}>
+      NorthWeb <span className="logo-accent">Labs</span>
+    </span>
+  </Link>
+);
 
-      {/* ── Building 1: tall dark tower (right) ── */}
-      <g>
-        {/* front face */}
-        <polygon points="370,180 400,196 400,290 370,274" fill="#0f172a" />
-        {/* top face */}
-        <polygon points="350,170 380,186 400,196 370,180" fill="#1e293b" />
-        {/* side face */}
-        <polygon points="380,186 400,196 400,290 380,280" fill="#0f172a" stroke="#334155" strokeWidth="0.5" />
-        {/* windows */}
-        {[0,1,2,3,4].map(row => (
-          <g key={row}>
-            <rect x={374} y={192 + row * 16} width={8} height={10} fill="#3b82f6" opacity="0.7" rx="1"/>
-            <rect x={386} y={192 + row * 16} width={8} height={10} fill="#3b82f6" opacity="0.4" rx="1"/>
-          </g>
-        ))}
-        {/* antenna */}
-        <line x1="375" y1="170" x2="375" y2="155" stroke="#334155" strokeWidth="2"/>
-        <circle cx="375" cy="153" r="3" fill="#3b82f6"/>
-      </g>
-
-      {/* ── Building 2: medium building (center-right) ── */}
-      <g>
-        <polygon points="310,220 345,238 345,305 310,287" fill="#1e40af" />
-        <polygon points="290,210 325,228 345,238 310,220" fill="#2563eb" />
-        <polygon points="325,228 345,238 345,305 325,295" fill="#1d4ed8" />
-        {[0,1,2,3].map(row => (
-          <g key={row}>
-            <rect x={314} y={228 + row * 17} width={9} height={11} fill="white" opacity="0.25" rx="1"/>
-            <rect x={327} y={228 + row * 17} width={9} height={11} fill="white" opacity="0.15" rx="1"/>
-          </g>
-        ))}
-        {/* rooftop detail */}
-        <polygon points="290,210 325,228 325,220 290,202" fill="#3b82f6" opacity="0.5"/>
-      </g>
-
-      {/* ── Building 3: short wide warehouse (center-left) ── */}
-      <g>
-        <polygon points="215,245 270,270 270,315 215,290" fill="#334155" />
-        <polygon points="200,237 255,262 270,270 215,245" fill="#475569" />
-        <polygon points="255,262 270,270 270,315 255,307" fill="#1e293b" />
-        {/* large door */}
-        <polygon points="225,268 245,277 245,290 225,281" fill="#0f172a" />
-        {/* skylights */}
-        <rect x={220} y={242} width={15} height={8} fill="#93c5fd" opacity="0.4" rx="1"/>
-        <rect x={240} y={248} width={15} height={8} fill="#93c5fd" opacity="0.3" rx="1"/>
-      </g>
-
-      {/* ── Building 4: small cube (far left) ── */}
-      <g>
-        <polygon points="195,265 225,280 225,310 195,295" fill="#1e40af" opacity="0.8"/>
-        <polygon points="180,258 210,273 225,280 195,265" fill="#3b82f6" opacity="0.8"/>
-        <polygon points="210,273 225,280 225,310 210,303" fill="#1d4ed8" opacity="0.8"/>
-        <rect x={198} y={270} width={10} height={13} fill="white" opacity="0.2" rx="1"/>
-        <rect x={212} y={270} width={8} height={13} fill="white" opacity="0.15" rx="1"/>
-      </g>
-
-      {/* ── Curved ramp / bridge element ── */}
-      <g>
-        <path
-          d="M 270 310 Q 290 295 310 305 Q 330 315 340 330"
-          stroke="#6366f1"
-          strokeWidth="3"
-          fill="none"
-          strokeLinecap="round"
-        />
-        <path
-          d="M 270 315 Q 290 300 310 310 Q 330 320 340 335"
-          stroke="#e0e7ff"
-          strokeWidth="1"
-          fill="none"
-          strokeLinecap="round"
-        />
-      </g>
-
-      {/* ── Street lamp posts ── */}
-      {[
-        [185, 230], [430, 260], [355, 345], [240, 360], [455, 310], [310, 375]
-      ].map(([x, y], i) => (
-        <g key={i}>
-          <line x1={x} y1={y} x2={x} y2={y + 35} stroke="#475569" strokeWidth="1.5"/>
-          <line x1={x} y1={y} x2={x + 10} y2={y - 5} stroke="#475569" strokeWidth="1.5"/>
-          <circle cx={x + 10} cy={y - 5} r={4} fill="#fbbf24" opacity="0.8"/>
-          <circle cx={x + 10} cy={y - 5} r={7} fill="#fbbf24" opacity="0.15"/>
-        </g>
-      ))}
-
-      {/* ── Small decorative elements ── */}
-      {/* floating circles/nodes */}
-      {[
-        [350, 155, "#3b82f6", 0.6],
-        [420, 230, "#6366f1", 0.4],
-        [200, 200, "#3b82f6", 0.3],
-        [460, 350, "#6366f1", 0.5],
-        [175, 310, "#3b82f6", 0.4],
-      ].map(([x, y, fill, op], i) => (
-        <g key={i}>
-          <circle cx={x as number} cy={y as number} r={6} fill={fill as string} opacity={op as number}/>
-          <circle cx={x as number} cy={y as number} r={10} fill={fill as string} opacity={(op as number) * 0.3}/>
-          {/* connector lines */}
-          <line
-            x1={x as number} y1={(y as number) + 10}
-            x2={x as number} y2={(y as number) + 20}
-            stroke={fill as string} strokeWidth="1" opacity="0.4"
-          />
-        </g>
-      ))}
-
-      {/* People figures on ground */}
-      {[
-        [290, 320], [320, 340], [260, 340]
-      ].map(([x, y], i) => (
-        <g key={i}>
-          <circle cx={x} cy={y - 8} r={4} fill="#6366f1" opacity="0.7"/>
-          <line x1={x} y1={y - 4} x2={x} y2={y + 8} stroke="#6366f1" strokeWidth="2" opacity="0.7"/>
-          <line x1={x - 4} y1={y + 2} x2={x + 4} y2={y + 2} stroke="#6366f1" strokeWidth="1.5" opacity="0.7"/>
-        </g>
-      ))}
-
-      {/* Floating X marker on tall building */}
-      <g transform="translate(358, 162)">
-        <circle cx="0" cy="0" r="8" fill="white" stroke="#e5e7eb" strokeWidth="1"/>
-        <line x1="-4" y1="-4" x2="4" y2="4" stroke="#6b7280" strokeWidth="1.5" strokeLinecap="round"/>
-        <line x1="4" y1="-4" x2="-4" y2="4" stroke="#6b7280" strokeWidth="1.5" strokeLinecap="round"/>
-      </g>
-
-      {/* Location pin on center building */}
-      <g transform="translate(315, 200)">
-        <circle cx="0" cy="0" r="6" fill="#3b82f6"/>
-        <circle cx="0" cy="0" r="3" fill="white"/>
-        <line x1="0" y1="6" x2="0" y2="14" stroke="#3b82f6" strokeWidth="1.5"/>
-      </g>
-
-      {/* Data connection lines */}
-      <line x1="350" y1="163" x2="315" y2="203" stroke="#c7d2fe" strokeWidth="0.8" strokeDasharray="4 3"/>
-      <line x1="315" y1="203" x2="280" y2="250" stroke="#c7d2fe" strokeWidth="0.8" strokeDasharray="4 3"/>
-    </svg>
-  );
-}
-
-// ─── Nav ──────────────────────────────────────────────────────────────────────
-
-function Nav() {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 10);
-    window.addEventListener("scroll", onScroll);
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  return (
-    <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-200 ${
-        scrolled ? "bg-white/95 backdrop-blur-sm shadow-sm" : "bg-white"
-      } border-b border-gray-100`}
-    >
-      <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-        {/* Logo */}
-        <div className="flex items-center gap-2.5">
-          <Image
-            src="/logo-nwl.png"
-            alt="NorthWeb Labs"
-            width={60}
-            height={90}
-            priority
-            className="flex-shrink-0"
-          />
-          <span className="text-sm font-bold text-[#0f172a] tracking-tight">
-            NorthWeb Labs
-          </span>
-        </div>
-
-        {/* Nav links */}
-        <div className="hidden md:flex items-center gap-8">
-          {["Product", "Solutions", "Pricing", "Customers", "Resources"].map((item) => (
-            <a
-              key={item}
-              href="#"
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              {item}
-            </a>
-          ))}
-        </div>
-
-        {/* CTA */}
-        <div className="flex items-center gap-3">
-          <a href="#" className="hidden sm:block text-sm text-gray-600 hover:text-gray-900 transition-colors">
-            Sign in
-          </a>
-          <a
-            href="#"
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#0f172a] text-white text-sm font-medium rounded-lg hover:bg-[#1e293b] transition-colors"
-          >
-            Book a demo
-            <span className="text-xs">→</span>
-          </a>
-        </div>
+/* ---------- Dashboard mockup (reused in hero + speed section) ---------- */
+const DashboardMock = ({ framed = false }: { framed?: boolean }) => (
+  <div className={`dash-wrap ${framed ? 'framed' : ''}`}>
+    <div className="dash">
+      <div className="dash-titlebar">
+        <span className="dash-logo">N</span>
+        <span className="dash-title">Dashboard</span>
+        <span className="dash-dots">
+          <i className="dot red" /><i className="dot yellow" /><i className="dot green" />
+        </span>
       </div>
-    </nav>
-  );
-}
-
-// ─── Hero ─────────────────────────────────────────────────────────────────────
-
-function Hero() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 80);
-    return () => clearTimeout(t);
-  }, []);
-
-  return (
-    <section className="min-h-screen pt-14 flex items-center bg-white overflow-hidden">
-      <div className="max-w-7xl mx-auto px-6 w-full">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center py-16 lg:py-24">
-
-          {/* Left: text */}
-          <div
-            className={`transition-all duration-700 ease-out ${
-              visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
-            }`}
-          >
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 mb-8">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#3b82f6]" />
-              <span className="text-xs text-gray-500 font-medium tracking-wide">
-                Now hiring · Series A · 200+ teams
-              </span>
+      <div className="dash-body">
+        <div className="dash-rail">
+          <span className="rail-item active" />
+          <span className="rail-item" />
+          <span className="rail-item" />
+          <span className="rail-item" />
+        </div>
+        <div className="dash-main">
+          <div className="dash-greeting">Good morning, Ananya</div>
+          <div className="dash-pay-card">
+            <div>
+              <div className="pay-label">Net pay · June</div>
+              <div className="pay-amount">₹1,84,200</div>
             </div>
-
-            {/* Headline */}
-            <h1 className="text-5xl lg:text-6xl font-black text-[#0f172a] leading-[1.05] tracking-tight mb-6">
-              Run your
-              <br />
-              <span className="text-[#3b82f6]">whole HR stack</span>
-              <br />
-              from one place.
-            </h1>
-
-            {/* Subtext */}
-            <p className="text-base text-gray-500 leading-relaxed mb-10 max-w-sm">
-              Hiring, onboarding, payroll, time-off, performance —
-              NorthWeb Labs gives your people team a single, calm city
-              to operate in.
-            </p>
-
-            {/* CTAs */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <a
-                href="#"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-[#0f172a] text-white text-sm font-semibold rounded-lg hover:bg-[#1e293b] transition-all hover:gap-3"
-              >
-                Start free trial
-                <span>→</span>
-              </a>
-              <a
-                href="#"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-white text-[#0f172a] text-sm font-semibold rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors"
-              >
-                Watch the tour
-              </a>
-            </div>
-
-            {/* Social proof stats */}
-            <div className="flex items-center gap-10 mt-12 pt-10 border-t border-gray-100">
-              {[
-                { value: "1,200+", label: "teams" },
-                { value: "98%", label: "retention" },
-                { value: "SOC 2", label: "Type I" },
-              ].map((stat) => (
-                <div key={stat.label}>
-                  <p className="text-xl font-black text-[#0f172a] leading-none mb-1">
-                    {stat.value}
-                  </p>
-                  <p className="text-xs text-gray-400">{stat.label}</p>
-                </div>
+            <div className="mini-bars" aria-hidden="true">
+              {[8, 12, 16, 13, 18, 22, 19, 30].map((h, i) => (
+                <span key={i} style={{ height: h }} className={i === 7 ? 'bar tall' : 'bar'} />
               ))}
             </div>
           </div>
-
-          {/* Right: illustration */}
-          <div
-            className={`transition-all duration-700 delay-200 ease-out ${
-              visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-            } flex items-center justify-center`}
-          >
-            <div className="w-full max-w-xl">
-              <IsometricCity />
+          <div className="dash-row">
+            <div className="dash-small-card">
+              <div className="small-num">14 <span>days</span></div>
+              <div className="pips" aria-hidden="true">
+                {[1, 1, 1, 1, 0, 0, 0].map((on, i) => (
+                  <span key={i} className={on ? 'pip on' : 'pip'} />
+                ))}
+              </div>
+            </div>
+            <div className="dash-small-card">
+              <div className="small-label">Today</div>
+              <div className="checked-in"><i className="status-dot" /> Checked in</div>
+              <div className="time-range">09:02 → 18:30</div>
             </div>
           </div>
         </div>
       </div>
-    </section>
-  );
-}
-
-// ─── Feature strip ────────────────────────────────────────────────────────────
-
-function FeatureStrip() {
-  const features = [
-    { icon: <Users className="w-5 h-5" />, title: "Hiring", desc: "ATS built for speed", color: "text-blue-600", bg: "bg-blue-50" },
-    { icon: <Rocket className="w-5 h-5" />, title: "Onboarding", desc: "Day-one ready", color: "text-indigo-600", bg: "bg-indigo-50" },
-    { icon: <IndianRupee className="w-5 h-5" />, title: "Payroll", desc: "India-compliant, auto", color: "text-emerald-600", bg: "bg-emerald-50" },
-    { icon: <Umbrella className="w-5 h-5" />, title: "Time-off", desc: "Policies that just work", color: "text-amber-600", bg: "bg-amber-50" },
-    { icon: <BarChart2 className="w-5 h-5" />, title: "Performance", desc: "Reviews without dread", color: "text-purple-600", bg: "bg-purple-50" },
-    { icon: <Shield className="w-5 h-5" />, title: "Compliance", desc: "PF, ESI, TDS — handled", color: "text-red-600", bg: "bg-red-50" },
-  ];
-
-  return (
-    <section className="border-t border-gray-100 bg-gray-50 py-16">
-      <div className="max-w-7xl mx-auto px-6">
-        <p className="text-center text-xs font-semibold text-gray-400 uppercase tracking-widest mb-10">
-          Everything your people team needs
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {features.map((f) => (
-            <div
-              key={f.title}
-              className="bg-white rounded-xl border border-gray-200 p-4 hover:border-blue-200 hover:bg-blue-50/30 transition-colors group cursor-pointer"
-            >
-              <div className={`w-9 h-9 rounded-lg ${f.bg} ${f.color} flex items-center justify-center mb-3 group-hover:scale-105 transition-transform`}>
-                {f.icon}
-              </div>
-              <p className="text-sm font-semibold text-[#0f172a] mb-1 group-hover:text-[#3b82f6] transition-colors">
-                {f.title}
-              </p>
-              <p className="text-xs text-gray-400 leading-snug">{f.desc}</p>
-            </div>
-          ))}
-        </div>
+      {/* Floating chips */}
+      <div className="chip chip-payroll"><i className="chip-dot" /> Payroll run · done</div>
+      <div className="chip chip-leave">
+        <span className="chip-check"><CheckIcon /></span>
+        <span>
+          <strong>Leave approved</strong>
+          <em>2 days · Aug</em>
+        </span>
       </div>
-    </section>
-  );
-}
+    </div>
+  </div>
+);
 
-// ─── Social proof logos ───────────────────────────────────────────────────────
+/* ---------- Header ---------- */
+const NAV = [
+  { label: 'Product', href: '/product' },
+  { label: 'Solutions', href: '/solutions' },
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'Customers', href: '/customers' },
+];
 
-function SocialProof() {
-  const logos = [
-    "Razorpay", "Zepto", "Meesho", "Groww", "upGrad", "PhonePe", "Zomato", "Ola"
-  ];
-
-  return (
-    <section className="py-14 border-t border-gray-100">
-      <div className="max-w-7xl mx-auto px-6">
-        <p className="text-center text-xs text-gray-400 font-medium mb-8">
-          Trusted by fast-growing teams across India
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-8">
-          {logos.map((logo) => (
-            <span
-              key={logo}
-              className="text-sm font-bold text-gray-300 hover:text-gray-400 transition-colors tracking-tight"
-            >
-              {logo}
-            </span>
-          ))}
-        </div>
+const Header = () => (
+  <header className="site-header">
+    <div className="container header-inner">
+      <Logo />
+      <nav className="main-nav" aria-label="Main">
+        {NAV.map((n) => (
+          <Link key={n.href} href={n.href} className="nav-link">{n.label}</Link>
+        ))}
+      </nav>
+      <div className="header-actions">
+        <Link href="/login" className="nav-link signin">Sign in</Link>
+        <Link href="/signup" className="btn btn-dark">Get started <ArrowRight size={15} /></Link>
       </div>
-    </section>
-  );
-}
+    </div>
+  </header>
+);
 
-// ─── Feature highlight ────────────────────────────────────────────────────────
-
-function FeatureHighlight() {
-  const highlights = [
-    {
-      eyebrow: "Payroll",
-      title: "Run payroll in minutes, not hours.",
-      desc: "Auto-calculate PF, ESI, PT, and TDS. Generate salary slips and send them via WhatsApp. One click — done.",
-      stat: "94%",
-      statLabel: "reduction in payroll errors",
-      accent: "#3b82f6",
-      bg: "bg-blue-50",
-    },
-    {
-      eyebrow: "Attendance",
-      title: "Your staff check in on WhatsApp.",
-      desc: "No app to install. Employees send 'IN' on WhatsApp and you see it live on your dashboard. Geo-tagged, time-stamped.",
-      stat: "< 30s",
-      statLabel: "average check-in time",
-      accent: "#6366f1",
-      bg: "bg-indigo-50",
-    },
-    {
-      eyebrow: "Compliance",
-      title: "Never miss a filing deadline again.",
-      desc: "Auto-generated compliance calendar for PF, ESIC, PT, TDS, and GST. Alerts 30 days before every due date.",
-      stat: "₹0",
-      statLabel: "in penalties for our customers",
-      accent: "#0f172a",
-      bg: "bg-gray-50",
-    },
-  ];
-
+/* ---------- Page ---------- */
+export default function Page() {
   return (
-    <section className="py-24 bg-white border-t border-gray-100">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl font-black text-[#0f172a] tracking-tight mb-4">
-            Built for how India works.
-          </h2>
-          <p className="text-base text-gray-500 max-w-md mx-auto">
-            Not a US HR tool bolted onto an India compliance layer. Built from the ground up for Indian MSMEs.
-          </p>
-        </div>
+    <div className="page">
+      <Header />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {highlights.map((h) => (
-            <div
-              key={h.eyebrow}
-              className={`${h.bg} rounded-2xl p-8 border border-gray-100 hover:scale-[1.01] transition-transform duration-200`}
-            >
-              <span
-                className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold mb-4"
-                style={{ background: h.accent + "20", color: h.accent }}
-              >
-                {h.eyebrow}
-              </span>
-              <h3 className="text-lg font-bold text-[#0f172a] leading-snug mb-3">
-                {h.title}
-              </h3>
-              <p className="text-sm text-gray-500 leading-relaxed mb-8">
-                {h.desc}
-              </p>
-              <div className="border-t border-gray-200 pt-6">
-                <p className="text-3xl font-black" style={{ color: h.accent }}>
-                  {h.stat}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">{h.statLabel}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Pricing ──────────────────────────────────────────────────────────────────
-
-function Pricing() {
-  const plans = [
-    {
-      name: "Starter",
-      price: "₹999",
-      period: "/mo",
-      desc: "Up to 25 employees",
-      features: [
-        "WhatsApp attendance",
-        "Basic payroll (fixed salary)",
-        "Digital salary slips",
-        "PF/ESI auto-calculation",
-        "Leave tracking",
-      ],
-      cta: "Start free trial",
-      highlighted: false,
-    },
-    {
-      name: "Growth",
-      price: "₹2,499",
-      period: "/mo",
-      desc: "Up to 75 employees",
-      features: [
-        "Everything in Starter",
-        "Variable pay + overtime",
-        "Geo-tagged attendance",
-        "AI document generation",
-        "Compliance calendar alerts",
-        "PT (state-wise) auto-calc",
-      ],
-      cta: "Start free trial",
-      highlighted: true,
-    },
-    {
-      name: "Scale",
-      price: "₹3,999",
-      period: "/mo",
-      desc: "Up to 200 employees",
-      features: [
-        "Everything in Growth",
-        "Shift + multi-location",
-        "Form 16 generation",
-        "ESIC / gratuity tracking",
-        "CA firm access",
-        "Priority phone support",
-      ],
-      cta: "Talk to sales",
-      highlighted: false,
-    },
-  ];
-
-  return (
-    <section className="py-24 bg-gray-50 border-t border-gray-100">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl font-black text-[#0f172a] tracking-tight mb-4">
-            Simple, honest pricing.
-          </h2>
-          <p className="text-base text-gray-500">
-            No setup fees. No per-user gotchas. Cancel any time.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-          {plans.map((plan) => (
-            <div
-              key={plan.name}
-              className={`rounded-2xl p-7 flex flex-col ${
-                plan.highlighted
-                  ? "bg-[#0f172a] text-white border-2 border-[#3b82f6] scale-[1.02]"
-                  : "bg-white border border-gray-200"
-              }`}
-            >
-              {plan.highlighted && (
-                <span className="inline-block mb-3 px-3 py-1 bg-[#3b82f6] text-white text-xs font-semibold rounded-full self-start">
-                  Most popular
-                </span>
-              )}
-              <h3
-                className={`text-sm font-semibold mb-1 ${
-                  plan.highlighted ? "text-blue-300" : "text-gray-500"
-                }`}
-              >
-                {plan.name}
-              </h3>
-              <div className="flex items-baseline gap-0.5 mb-1">
-                <span
-                  className={`text-3xl font-black ${
-                    plan.highlighted ? "text-white" : "text-[#0f172a]"
-                  }`}
-                >
-                  {plan.price}
-                </span>
-                <span
-                  className={`text-sm ${
-                    plan.highlighted ? "text-blue-300" : "text-gray-400"
-                  }`}
-                >
-                  {plan.period}
-                </span>
-              </div>
-              <p
-                className={`text-xs mb-6 ${
-                  plan.highlighted ? "text-blue-300" : "text-gray-400"
-                }`}
-              >
-                {plan.desc}
-              </p>
-
-              <ul className="flex flex-col gap-2.5 mb-8 flex-1">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-xs">
-                    <span
-                      className={`mt-0.5 flex-shrink-0 ${
-                        plan.highlighted ? "text-blue-400" : "text-emerald-500"
-                      }`}
-                    >
-                      ✓
-                    </span>
-                    <span
-                      className={
-                        plan.highlighted ? "text-blue-100" : "text-gray-600"
-                      }
-                    >
-                      {f}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-
-              <a
-                href="#"
-                className={`w-full py-2.5 text-sm font-semibold rounded-lg text-center transition-colors ${
-                  plan.highlighted
-                    ? "bg-[#3b82f6] text-white hover:bg-blue-500"
-                    : "bg-[#0f172a] text-white hover:bg-[#1e293b]"
-                }`}
-              >
-                {plan.cta}
-              </a>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── CTA Banner ───────────────────────────────────────────────────────────────
-
-function CTABanner() {
-  return (
-    <section className="py-24 bg-[#0f172a]">
-      <div className="max-w-3xl mx-auto px-6 text-center">
-        <h2 className="text-4xl font-black text-white tracking-tight mb-4">
-          Your whole HR stack.
-          <br />
-          <span className="text-[#3b82f6]">Finally, in one place.</span>
-        </h2>
-        <p className="text-base text-gray-400 mb-10">
-          Join 1,200+ teams already running on NorthWeb Labs.
-          14-day free trial, no credit card required.
-        </p>
-        <div className="flex items-center justify-center gap-3 flex-wrap">
-          <a
-            href="#"
-            className="px-8 py-3.5 bg-[#3b82f6] text-white text-sm font-semibold rounded-lg hover:bg-blue-500 transition-colors"
-          >
-            Start free trial →
-          </a>
-          <a
-            href="#"
-            className="px-8 py-3.5 bg-white/10 text-white text-sm font-semibold rounded-lg hover:bg-white/20 transition-colors border border-white/20"
-          >
-            Book a demo
-          </a>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─── Footer ───────────────────────────────────────────────────────────────────
-
-function Footer() {
-  const links = {
-    Product: ["Features", "Pricing", "Changelog", "Roadmap"],
-    Company: ["About", "Blog", "Careers", "Press"],
-    Legal: ["Privacy", "Terms", "Security", "GDPR"],
-    Support: ["Docs", "Status", "Contact", "Community"],
-  };
-
-  return (
-    <footer className="bg-white border-t border-gray-100 py-16">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-10 mb-16">
-          {/* Brand */}
-          <div className="col-span-2 md:col-span-1">
-            <div className="flex items-center gap-2 mb-4">
-              <Image
-                src="/logo-nwl.png"
-                alt="NorthWeb Labs"
-                width={120}
-                height={200}
-              />
-            </div>
-            <p className="text-xs text-gray-400 leading-relaxed max-w-[160px]">
-              HR & Payroll OS for Indian small businesses.
+      {/* ============ HERO ============ */}
+      <section className="hero">
+        <div className="container hero-grid">
+          <div className="hero-copy">
+            <span className="pill"><i className="pill-dot" /> New · AI leave &amp; payroll assistant</span>
+            <h1>
+              People ops,<br />without the<br /><span className="accent">busywork.</span>
+            </h1>
+            <p className="hero-sub">
+              Attendance, leave, payroll and performance in one calm
+              workspace — so your team spends time on people,
+              not paperwork.
             </p>
+            <div className="hero-ctas">
+              <Link href="/signup" className="btn btn-primary">Start free <ArrowRight /></Link>
+              <Link href="/demo" className="btn btn-outline">Book a demo</Link>
+            </div>
+            <div className="hero-note">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+              No card required · Set up in a day
+            </div>
           </div>
+          <div className="hero-visual">
+            <DashboardMock />
+          </div>
+        </div>
 
-          {/* Link columns */}
-          {Object.entries(links).map(([section, items]) => (
-            <div key={section}>
-              <h4 className="text-xs font-semibold text-[#0f172a] mb-4 uppercase tracking-wider">
-                {section}
-              </h4>
-              <ul className="flex flex-col gap-2.5">
-                {items.map((item) => (
-                  <li key={item}>
-                    <a
-                      href="#"
-                      className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
-                    >
-                      {item}
-                    </a>
-                  </li>
-                ))}
-              </ul>
+        {/* Logo strip */}
+        <div className="container logo-strip">
+          <div className="strip-label">Trusted by people teams at 12,000+ companies</div>
+          <div className="strip-logos">
+            {['Northwind', 'Lumen', 'Atlas', 'Vertex', 'Orbit', 'Quanta'].map((c) => (
+              <span key={c}>{c}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ============ ONE PLATFORM ============ */}
+      <section className="platform">
+        <div className="container">
+          <div className="kicker">One platform</div>
+          <h2>Everything HR, in one calm place.</h2>
+          <p className="section-sub">
+            Stop stitching together five tools. NorthWeb Labs runs the whole employee lifecycle
+            from a single, fast workspace.
+          </p>
+
+          <div className="feature-grid">
+            <Link href="/product/people" className="feature-card dark-card">
+              <span className="icon-tile dark-tile" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+              </span>
+              <span className="dark-card-glow" aria-hidden="true" />
+              <span className="dark-card-n" aria-hidden="true">N</span>
+              <div className="dark-card-body">
+                <h3>A people directory your whole company loves</h3>
+                <p>
+                  Org chart, profiles, documents and onboarding journeys
+                  — searchable, secure and always up to date.
+                </p>
+                <span className="text-link">Explore People <ArrowRight size={15} /></span>
+              </div>
+            </Link>
+
+            <Link href="/product/attendance" className="feature-card light-card">
+              <span className="icon-tile blue-tile" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
+              </span>
+              <h3>Attendance &amp; time</h3>
+              <p>Geo-aware clock-in, shifts, overtime and regularisation — all automatic.</p>
+            </Link>
+
+            <Link href="/product/leave" className="feature-card light-card">
+              <span className="icon-tile green-tile" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+              </span>
+              <h3>Leave management</h3>
+              <p>Policies, balances and approvals your team can self-serve in seconds.</p>
+            </Link>
+
+            <Link href="/product/payroll" className="feature-card light-card">
+              <span className="icon-tile amber-tile" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg>
+              </span>
+              <h3>Payroll &amp; compliance</h3>
+              <p>Run accurate payroll with PF, ESI and TDS handled for you.</p>
+            </Link>
+
+            <Link href="/product/performance" className="feature-card light-card">
+              <span className="icon-tile indigo-tile" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><rect x="7" y="12" width="3" height="6" /><rect x="12" y="8" width="3" height="10" /><rect x="17" y="5" width="3" height="13" /></svg>
+              </span>
+              <h3>Performance</h3>
+              <p>Goals, check-ins and reviews that actually fit how people work.</p>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ============ BUILT FOR SPEED ============ */}
+      <section className="speed">
+        <div className="container speed-grid">
+          <div className="speed-copy">
+            <div className="kicker">Built for speed</div>
+            <h2>The work that took days<br />now takes minutes.</h2>
+            <ul className="speed-list">
+              <li>
+                <span className="check-badge"><CheckIcon /></span>
+                <div>
+                  <h4>Run payroll in minutes</h4>
+                  <p>Auto-calculated salaries, taxes and payslips — approve and you&rsquo;re done.</p>
+                </div>
+              </li>
+              <li>
+                <span className="check-badge"><CheckIcon /></span>
+                <div>
+                  <h4>Approvals that don&rsquo;t pile up</h4>
+                  <p>Leave, reimbursements and timesheets routed to the right person instantly.</p>
+                </div>
+              </li>
+              <li>
+                <span className="check-badge"><CheckIcon /></span>
+                <div>
+                  <h4>Reports leadership trusts</h4>
+                  <p>Headcount, attrition and cost dashboards, exportable in a click.</p>
+                </div>
+              </li>
+            </ul>
+            <Link href="/demo" className="btn btn-dark btn-lg">See it in action <ArrowRight /></Link>
+          </div>
+          <div className="speed-visual">
+            <DashboardMock framed />
+          </div>
+        </div>
+      </section>
+
+      {/* ============ STATS ============ */}
+      <section className="stats" aria-label="Key statistics">
+        <div className="container stats-grid">
+          {[
+            { num: '12k+', label: 'companies' },
+            { num: '2M+', label: 'payslips run' },
+            { num: '99.98%', label: 'uptime' },
+            { num: '4.9 / 5', label: 'avg. rating' },
+          ].map((s) => (
+            <div key={s.label} className="stat">
+              <div className="stat-num">{s.num}</div>
+              <div className="stat-label">{s.label}</div>
             </div>
           ))}
         </div>
+      </section>
 
-        <div className="border-t border-gray-100 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-gray-400">
-            © 2026 NorthWeb Labs. All rights reserved.
+      {/* ============ BUILT FOR INDIA ============ */}
+      <section className="india">
+        <div className="container india-inner">
+          <h2>Built for how India works.</h2>
+          <p className="india-sub">
+            Not a US HR tool bolted onto an India compliance layer.<br />
+            Built from the ground up for Indian MSMEs.
           </p>
-          <p className="text-xs text-gray-400">
-            Made with care in Pune, India
-          </p>
+          <div className="india-grid">
+            <div className="india-card blue">
+              <span className="india-pill blue">Payroll</span>
+              <h3>Run payroll in minutes, not hours.</h3>
+              <p>
+                Auto-calculate PF, ESI, PT, and TDS. Generate
+                salary slips and send them via WhatsApp. One
+                click — done.
+              </p>
+              <div className="india-divider" />
+              <div className="india-stat blue">94%</div>
+              <div className="india-stat-label">reduction in payroll errors</div>
+            </div>
+            <div className="india-card purple">
+              <span className="india-pill purple">Attendance</span>
+              <h3>Your staff check in on WhatsApp.</h3>
+              <p>
+                No app to install. Employees send &lsquo;IN&rsquo; on
+                WhatsApp and you see it live on your dashboard.
+                Geo-tagged, time-stamped.
+              </p>
+              <div className="india-divider" />
+              <div className="india-stat purple">&lt; 30s</div>
+              <div className="india-stat-label">average check-in time</div>
+            </div>
+            <div className="india-card gray">
+              <span className="india-pill gray">Compliance</span>
+              <h3>Never miss a filing deadline again.</h3>
+              <p>
+                Auto-generated compliance calendar for PF,
+                ESIC, PT, TDS, and GST. Alerts 30 days before
+                every due date.
+              </p>
+              <div className="india-divider" />
+              <div className="india-stat dark">₹0</div>
+              <div className="india-stat-label">in penalties for our customers</div>
+            </div>
+          </div>
         </div>
-      </div>
-    </footer>
-  );
-}
+      </section>
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+      {/* ============ CTA BANNER ============ */}
+      <section className="cta-banner-wrap">
+        <div className="container">
+          <div className="cta-banner">
+            <span className="banner-n n1" aria-hidden="true">N</span>
+            <span className="banner-n n2" aria-hidden="true">N</span>
+            <h2>Give your people team their time back.</h2>
+            <p>
+              Start free in minutes. No credit card, no migrations headache —
+              we&rsquo;ll bring your data over.
+            </p>
+            <div className="cta-banner-actions">
+              <Link href="/signup" className="btn btn-white">Start free <ArrowRight /></Link>
+              <Link href="/contact" className="btn btn-ghost">Talk to sales</Link>
+            </div>
+          </div>
+        </div>
+      </section>
 
-export default function LandingPage() {
-  return (
-    <main className="font-sans">
-      <Nav />
-      <Hero />
-      <SocialProof />
-      <FeatureStrip />
-      <FeatureHighlight />
-      <Pricing />
-      <CTABanner />
       <Footer />
-    </main>
+
+      {/* ============ STYLES (plain global CSS — no styled-jsx registry needed) ============ */}
+      <style dangerouslySetInnerHTML={{ __html: `
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+          color: #0b1220;
+          background: #fff;
+          -webkit-font-smoothing: antialiased;
+        }
+        a { text-decoration: none; color: inherit; }
+        ul { list-style: none; }
+      
+
+        .page { overflow-x: hidden; }
+        html, body { overflow-x: hidden; }
+        .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+        .hero-grid > *, .speed-grid > * { min-width: 0; }
+        .dash { max-width: 100%; }
+
+        .kicker {
+          font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+          font-size: 12px; font-weight: 700; letter-spacing: 0.22em;
+          text-transform: uppercase; color: #2563eb; margin-bottom: 16px;
+        }
+
+        /* ---------- Buttons ---------- */
+        .btn {
+          display: inline-flex; align-items: center; gap: 8px;
+          font-size: 15px; font-weight: 600; border-radius: 12px;
+          padding: 13px 24px; cursor: pointer; border: none;
+          transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+          white-space: nowrap;
+        }
+        .btn:hover { transform: translateY(-1px); }
+        .btn-primary { background: #2563eb; color: #fff; box-shadow: 0 8px 20px rgba(37, 99, 235, 0.28); }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-dark { background: #0b1220; color: #fff; }
+        .btn-dark:hover { background: #1a2436; }
+        .btn-outline { background: #fff; color: #0b1220; border: 1px solid #dbe1ea; }
+        .btn-outline:hover { border-color: #b9c3d4; }
+        .btn-white { background: #fff; color: #0b1220; }
+        .btn-ghost { background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, 0.45); }
+        .btn-ghost:hover { background: rgba(255, 255, 255, 0.1); }
+        .btn-lg { padding: 15px 28px; }
+
+        /* ---------- Header ---------- */
+        .site-header {
+          position: sticky; top: 0; z-index: 50;
+          background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px);
+          border-bottom: 1px solid #eef1f6;
+        }
+        .header-inner { display: flex; align-items: center; gap: 36px; height: 76px; }
+        .logo { display: inline-flex; align-items: center; gap: 10px; }
+        .logo-mark {
+          width: 36px; height: 36px; border-radius: 10px; background: #0b1220;
+          color: #fff; display: inline-flex; align-items: center; justify-content: center;
+          font-weight: 800; font-size: 19px;
+        }
+        .logo-text { font-weight: 800; font-size: 18px; color: #0b1220; }
+        .logo-text.light { color: #fff; }
+        .logo-accent { color: #2563eb; }
+        .main-nav { display: flex; gap: 28px; }
+        .nav-link { font-size: 15px; font-weight: 500; color: #3b4456; transition: color 0.15s; }
+        .nav-link:hover { color: #0b1220; }
+        .header-actions { margin-left: auto; display: flex; align-items: center; gap: 20px; }
+        .signin { font-weight: 600; color: #0b1220; }
+
+        /* ---------- Hero ---------- */
+        .hero {
+          background: linear-gradient(180deg, #fff 0%, #f4f7fb 100%);
+          padding: 88px 0 72px;
+        }
+        .hero-grid {
+          display: grid; grid-template-columns: 1fr 1fr;
+          gap: 56px; align-items: center;
+        }
+        .pill {
+          display: inline-flex; align-items: center; gap: 8px;
+          background: #e3ecfd; color: #1d4ed8; border-radius: 999px;
+          font-size: 13.5px; font-weight: 600; padding: 8px 16px; margin-bottom: 28px;
+        }
+        .pill-dot { width: 7px; height: 7px; border-radius: 50%; background: #2563eb; }
+        .hero h1 {
+          font-size: clamp(44px, 5.5vw, 68px); line-height: 1.04;
+          letter-spacing: -0.03em; font-weight: 800;
+        }
+        .accent { color: #2563eb; }
+        .hero-sub {
+          margin-top: 26px; font-size: 18px; line-height: 1.65;
+          color: #4a5468; max-width: 480px;
+        }
+        .hero-ctas { display: flex; gap: 14px; margin-top: 34px; }
+        .hero-note {
+          display: flex; align-items: center; gap: 8px;
+          margin-top: 20px; font-size: 14px; color: #5b6577;
+        }
+
+        /* ---------- Dashboard mock ---------- */
+        .dash-wrap { position: relative; }
+        .dash-wrap.framed {
+          background: linear-gradient(135deg, #dde7fb 0%, #eef2fc 60%, #f6f8fe 100%);
+          border-radius: 28px; padding: 44px 40px 56px 56px;
+        }
+        .dash {
+          position: relative; background: #fff; border-radius: 16px;
+          border: 1px solid #e7ecf3;
+          box-shadow: 0 24px 60px rgba(15, 30, 60, 0.12);
+        }
+        .dash-titlebar {
+          display: flex; align-items: center; gap: 10px;
+          padding: 14px 18px; border-bottom: 1px solid #eef1f6;
+        }
+        .dash-logo {
+          width: 24px; height: 24px; border-radius: 7px; background: #0b1220;
+          color: #fff; font-size: 13px; font-weight: 800;
+          display: inline-flex; align-items: center; justify-content: center;
+        }
+        .dash-title { font-size: 14px; font-weight: 700; }
+        .dash-dots { margin-left: auto; display: flex; gap: 6px; }
+        .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+        .dot.red { background: #ef4444; } .dot.yellow { background: #f59e0b; } .dot.green { background: #22c55e; }
+        .dash-body { display: flex; }
+        .dash-rail {
+          width: 58px; border-right: 1px solid #eef1f6; padding: 18px 0;
+          display: flex; flex-direction: column; align-items: center; gap: 16px;
+        }
+        .rail-item { width: 22px; height: 22px; border-radius: 7px; background: #e8edf5; }
+        .rail-item.active { background: #2563eb; }
+        .dash-main { flex: 1; padding: 18px 20px 22px; }
+        .dash-greeting { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+        .dash-pay-card {
+          display: flex; align-items: flex-end; justify-content: space-between;
+          border: 1px solid #e7ecf3; border-radius: 12px; padding: 14px 16px;
+          box-shadow: 0 6px 18px rgba(15, 30, 60, 0.05); margin-bottom: 14px;
+        }
+        .pay-label { font-size: 12.5px; color: #67718a; margin-bottom: 5px; }
+        .pay-amount { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 26px; font-weight: 700; }
+        .mini-bars { display: flex; align-items: flex-end; gap: 4px; }
+        .bar { width: 6px; border-radius: 3px; background: #bcd2fb; display: inline-block; }
+        .bar.tall { background: #2563eb; }
+        .dash-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .dash-small-card {
+          border: 1px solid #e7ecf3; border-radius: 12px; padding: 12px 14px;
+          box-shadow: 0 6px 18px rgba(15, 30, 60, 0.04);
+        }
+        .small-num { font-size: 18px; font-weight: 800; }
+        .small-num span { font-size: 12px; color: #67718a; font-weight: 500; }
+        .pips { display: flex; gap: 5px; margin-top: 10px; }
+        .pip { width: 26px; height: 5px; border-radius: 3px; background: #e3e9f2; }
+        .pip.on { background: #2563eb; }
+        .small-label { font-size: 12.5px; color: #67718a; margin-bottom: 6px; }
+        .checked-in { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 700; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+        .time-range { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; color: #67718a; margin-top: 5px; }
+
+        .chip {
+          position: absolute; background: #fff; border-radius: 14px;
+          box-shadow: 0 14px 34px rgba(15, 30, 60, 0.16);
+          font-size: 13.5px; display: flex; align-items: center; gap: 9px;
+          padding: 11px 16px;
+        }
+        .chip-payroll { top: 28px; right: -22px; font-weight: 600; }
+        .chip-dot { width: 9px; height: 9px; border-radius: 50%; background: #2563eb; }
+        .chip-leave { bottom: 86px; left: -34px; padding: 12px 18px 12px 12px; }
+        .chip-check {
+          width: 34px; height: 34px; border-radius: 10px; background: #22c55e;
+          display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .chip-leave strong { display: block; font-size: 14px; }
+        .chip-leave em { display: block; font-style: normal; font-size: 12.5px; color: #67718a; }
+
+        /* ---------- Logo strip ---------- */
+        .logo-strip { margin-top: 96px; text-align: center; }
+        .strip-label {
+          font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+          font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase;
+          color: #8a93a6; margin-bottom: 28px;
+        }
+        .strip-logos {
+          display: flex; justify-content: center; flex-wrap: wrap;
+          gap: 18px 56px; font-size: 22px; font-weight: 800; color: #b6bfce;
+        }
+
+        /* ---------- Platform ---------- */
+        .platform { padding: 110px 0 100px; }
+        .platform h2, .speed h2 {
+          font-size: clamp(34px, 4vw, 46px); font-weight: 800; letter-spacing: -0.025em;
+        }
+        .section-sub { margin-top: 16px; font-size: 17.5px; line-height: 1.65; color: #4a5468; max-width: 560px; }
+
+        .feature-grid {
+          margin-top: 56px; display: grid;
+          grid-template-columns: 1fr 1fr; gap: 24px;
+        }
+        .feature-card {
+          display: block; border-radius: 20px; transition: transform 0.18s ease, box-shadow 0.18s ease;
+        }
+        .feature-card:hover { transform: translateY(-3px); }
+        .light-card {
+          background: #fff; border: 1px solid #e7ecf3; padding: 32px;
+          box-shadow: 0 4px 14px rgba(15, 30, 60, 0.04);
+        }
+        .light-card:hover { box-shadow: 0 16px 36px rgba(15, 30, 60, 0.1); }
+        .light-card h3 { font-size: 21px; font-weight: 800; margin: 22px 0 10px; }
+        .light-card p { font-size: 15.5px; line-height: 1.6; color: #4a5468; }
+        .icon-tile {
+          width: 52px; height: 52px; border-radius: 14px;
+          display: inline-flex; align-items: center; justify-content: center;
+        }
+        .blue-tile { background: #e3ecfd; }
+        .green-tile { background: #dcf5e6; }
+        .amber-tile { background: #fdeed3; }
+        .indigo-tile { background: #e4e4fb; }
+        .dark-tile { background: rgba(255, 255, 255, 0.12); }
+
+        .dark-card {
+          grid-row: span 2; position: relative; overflow: hidden;
+          background: radial-gradient(120% 120% at 85% 8%, #1a2c52 0%, #0b1220 55%);
+          padding: 32px; display: flex; flex-direction: column;
+          box-shadow: 0 18px 44px rgba(8, 16, 34, 0.35);
+        }
+        .dark-card-glow {
+          position: absolute; top: -70px; right: -40px; width: 280px; height: 280px;
+          border-radius: 50%; background: radial-gradient(circle, rgba(59, 110, 245, 0.5), transparent 65%);
+          filter: blur(8px); pointer-events: none;
+        }
+        .dark-card-n {
+          position: absolute; bottom: -60px; left: -16px;
+          font-size: 280px; font-weight: 900; color: rgba(255, 255, 255, 0.05);
+          line-height: 1; pointer-events: none; user-select: none;
+        }
+        .dark-card-body { margin-top: auto; position: relative; }
+        .dark-card h3 { color: #fff; font-size: 27px; font-weight: 800; line-height: 1.25; max-width: 420px; }
+        .dark-card p { color: #b9c3d8; font-size: 15.5px; line-height: 1.65; margin-top: 14px; max-width: 440px; }
+        .text-link {
+          display: inline-flex; align-items: center; gap: 7px;
+          margin-top: 22px; color: #7ea4f7; font-weight: 700; font-size: 15.5px;
+        }
+
+        /* ---------- Speed ---------- */
+        .speed { background: #f4f7fb; padding: 110px 0; }
+        .speed-grid {
+          display: grid; grid-template-columns: 1fr 1.05fr;
+          gap: 64px; align-items: center;
+        }
+        .speed-list { margin: 38px 0 40px; display: flex; flex-direction: column; gap: 28px; }
+        .speed-list li { display: flex; gap: 16px; }
+        .check-badge {
+          width: 30px; height: 30px; border-radius: 9px; background: #22c55e;
+          display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
+        }
+        .speed-list h4 { font-size: 17.5px; font-weight: 800; margin-bottom: 5px; }
+        .speed-list p { font-size: 15.5px; line-height: 1.6; color: #4a5468; }
+
+        /* ---------- Stats ---------- */
+        .stats {
+          background: #0b1220;
+          background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+          background-size: 26px 26px;
+          padding: 84px 0;
+        }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; text-align: center; }
+        .stat-num {
+          font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+          font-size: clamp(34px, 4vw, 48px); font-weight: 700; color: #fff;
+        }
+        .stat-label { margin-top: 10px; font-size: 15px; color: #94a0b8; }
+
+        /* ---------- Built for India ---------- */
+        .india { background: #fff; padding: 120px 0; }
+        .india-inner { text-align: center; }
+        .india h2 { font-size: clamp(32px, 4vw, 46px); font-weight: 800; letter-spacing: -0.025em; }
+        .india-sub { margin: 18px auto 0; font-size: 17.5px; line-height: 1.7; color: #8a93a6; }
+        .india-grid {
+          margin-top: 56px; display: grid;
+          grid-template-columns: repeat(3, 1fr); gap: 26px; text-align: left;
+        }
+        .india-card { border-radius: 20px; padding: 32px 30px 34px; }
+        .india-card.blue { background: #eef5fd; }
+        .india-card.purple { background: #ecedfb; }
+        .india-card.gray { background: #f5f6f8; }
+        .india-pill {
+          display: inline-block; font-size: 13px; font-weight: 700;
+          border-radius: 999px; padding: 5px 14px;
+        }
+        .india-pill.blue { background: #dbeafe; color: #2563eb; }
+        .india-pill.purple { background: #e3e3fb; color: #6d5ce8; }
+        .india-pill.gray { background: #e3e5e9; color: #3b4456; }
+        .india-card h3 { margin-top: 22px; font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+        .india-card p { margin-top: 13px; font-size: 15.5px; line-height: 1.65; color: #5b6577; }
+        .india-divider { margin: 26px 0 22px; height: 1px; background: rgba(11, 18, 32, 0.08); }
+        .india-stat { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 38px; font-weight: 700; }
+        .india-stat.blue { color: #2563eb; }
+        .india-stat.purple { color: #6d5ce8; }
+        .india-stat.dark { color: #0b1220; }
+        .india-stat-label { margin-top: 6px; font-size: 14px; color: #8a93a6; }
+
+        /* ---------- CTA banner ---------- */
+        .cta-banner-wrap { padding: 40px 0 110px; background: #fff; }
+        .cta-banner {
+          position: relative; overflow: hidden; text-align: center;
+          background: linear-gradient(120deg, #2057e0 0%, #3b6ef5 60%, #5b85f7 100%);
+          border-radius: 28px; padding: 86px 32px;
+          box-shadow: 0 28px 60px rgba(37, 99, 235, 0.35);
+        }
+        .banner-n {
+          position: absolute; font-weight: 900; color: rgba(255, 255, 255, 0.12);
+          line-height: 0.8; pointer-events: none; user-select: none;
+        }
+        .n1 { font-size: 320px; top: -60px; left: -30px; }
+        .n2 { font-size: 260px; bottom: -80px; right: -20px; }
+        .cta-banner h2 {
+          color: #fff; font-size: clamp(32px, 4vw, 46px);
+          font-weight: 800; letter-spacing: -0.02em; position: relative;
+        }
+        .cta-banner p {
+          color: rgba(255, 255, 255, 0.88); font-size: 17.5px; line-height: 1.6;
+          margin: 18px auto 36px; max-width: 520px; position: relative;
+        }
+        .cta-banner-actions { display: flex; justify-content: center; gap: 14px; position: relative; }
+
+        /* ---------- Footer ---------- */
+        .footer { background: #0b1220; color: #aab3c5; padding: 78px 0 36px; }
+        .footer-grid {
+          display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 40px;
+        }
+        .footer-brand p { margin-top: 20px; font-size: 15px; line-height: 1.7; }
+        .footer-col { display: flex; flex-direction: column; gap: 13px; }
+        .footer-col h5 {
+          color: #fff; font-size: 14.5px; font-weight: 700; margin-bottom: 6px;
+        }
+        .footer-col a { font-size: 14.5px; color: #aab3c5; transition: color 0.15s; }
+        .footer-col a:hover { color: #fff; }
+        .footer-bottom {
+          margin-top: 64px; padding-top: 28px; border-top: 1px solid rgba(255, 255, 255, 0.1);
+          display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;
+        }
+        .footer-copy { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; color: #7e8aa0; }
+        .footer-legal { display: flex; gap: 24px; }
+        .footer-legal a { font-size: 13.5px; color: #aab3c5; }
+        .footer-legal a:hover { color: #fff; }
+
+        /* ---------- Responsive ---------- */
+        @media (max-width: 980px) {
+          .hero { padding: 64px 0 56px; }
+          .hero-grid, .speed-grid { grid-template-columns: 1fr; gap: 40px; }
+          .hero-visual { margin-top: 28px; }
+          /* keep floating chips fully INSIDE the card on small screens */
+          .chip-payroll { right: 12px; top: 12px; }
+          .chip-leave { left: 12px; bottom: 12px; }
+          .dash-wrap.framed { padding: 28px 22px 38px; }
+          .feature-grid { grid-template-columns: 1fr; }
+          .dark-card { grid-row: auto; min-height: 380px; }
+          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 44px 24px; }
+          .india-grid { grid-template-columns: 1fr; }
+          .footer-grid { grid-template-columns: 1fr 1fr; }
+          .main-nav { display: none; }
+          .platform { padding: 80px 0 72px; }
+          .speed { padding: 80px 0; }
+          .india { padding: 84px 0; }
+          .logo-strip { margin-top: 64px; }
+        }
+        @media (max-width: 560px) {
+          .container { padding: 0 18px; }
+          .header-inner { gap: 16px; height: 64px; }
+          .header-actions { gap: 12px; }
+          .header-actions .btn { padding: 10px 16px; font-size: 14px; }
+          .signin { display: none; }
+
+          .hero { padding: 44px 0 48px; }
+          .hero h1 { font-size: clamp(33px, 9.5vw, 42px); }
+          .hero-sub { font-size: 16.5px; }
+          .hero-ctas, .cta-banner-actions { flex-direction: column; align-items: stretch; }
+
+          /* dashboard mock: scale internals so min-content fits ~320px */
+          .dash-wrap.framed { padding: 16px 12px 24px; }
+          .dash-rail { width: 44px; }
+          .dash-main { padding: 14px 13px 16px; }
+          .dash-pay-card { padding: 12px 13px; }
+          .pay-amount { font-size: 21px; }
+          .bar { width: 5px; }
+          .dash-row { gap: 10px; }
+          .pip { width: 18px; }
+          .chip { font-size: 12px; padding: 8px 12px; box-shadow: 0 10px 24px rgba(15, 30, 60, 0.16); }
+          .chip-leave { padding: 9px 13px 9px 9px; }
+          .chip-leave strong { font-size: 12.5px; }
+          .chip-leave em { font-size: 11.5px; }
+          .chip-check { width: 28px; height: 28px; }
+
+          .logo-strip { margin-top: 52px; }
+          .strip-logos { gap: 14px 28px; font-size: 17px; }
+          .platform { padding: 64px 0 56px; }
+          .speed { padding: 64px 0; }
+          .stats { padding: 60px 0; }
+          .india { padding: 64px 0; }
+          .india-stat { font-size: 32px; }
+          .light-card, .dark-card, .india-card { padding: 26px 22px 28px; }
+          .cta-banner-wrap { padding: 24px 0 72px; }
+          .cta-banner { padding: 56px 22px; border-radius: 22px; }
+          .n1 { font-size: 190px; top: -40px; left: -24px; }
+          .n2 { font-size: 150px; bottom: -50px; right: -16px; }
+          .footer { padding: 56px 0 30px; }
+          .footer-bottom { margin-top: 44px; }
+        }
+        @media (max-width: 380px) {
+          .dash-row { grid-template-columns: 1fr; }
+          .mini-bars { display: none; }
+        }
+      
+      ` }} />
+    </div>
   );
 }

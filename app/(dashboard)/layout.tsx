@@ -1,13 +1,14 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Sidebar from "@/components/Sidebar";
+import AppContextMenu from "@/components/AppContextMenu";
+import AIChatBot from "@/components/AIChatBot";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Default sidebar values — used if not logged in or DB fetch fails
   let orgName = "Your Company";
   let orgId = "";
   let planName = "Starter";
@@ -35,17 +36,30 @@ export default async function DashboardLayout({
       }
     );
 
-    const { data: { user } } = await supabase.auth.getUser();
+    // Try session_token first (custom auth)
+    const sessionToken = cookieStore.get("session_token")?.value;
+    let userId: string | null = null;
 
-    if (user) {
-      // Derive initials from email if no full name yet
-      userInitials = user.email?.slice(0, 2).toUpperCase() ?? "ME";
+    if (sessionToken) {
+      const { data: session } = await supabase
+        .from("user_sessions")
+        .select("user_id")
+        .eq("token", sessionToken)
+        .maybeSingle();
+      if (session?.user_id) userId = session.user_id;
+    }
 
-      // Try to fetch org info — gracefully skip if tables don't exist yet
+    // Fallback to Supabase auth
+    if (!userId) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) userId = user.id;
+    }
+
+    if (userId) {
       const { data: userData } = await supabase
         .from("users")
-        .select("org_id, full_name")
-        .eq("id", user.id)
+        .select("org_id, full_name, email")
+        .eq("id", userId)
         .maybeSingle();
 
       if (userData?.full_name) {
@@ -55,6 +69,8 @@ export default async function DashboardLayout({
           .slice(0, 2)
           .join("")
           .toUpperCase();
+      } else if (userData?.email) {
+        userInitials = userData.email.slice(0, 2).toUpperCase();
       }
 
       if (userData?.org_id) {
@@ -67,16 +83,11 @@ export default async function DashboardLayout({
 
         if (org) {
           orgName = org.name;
-          planName =
-            org.plan.charAt(0).toUpperCase() + org.plan.slice(1);
+          planName = org.plan?.charAt(0).toUpperCase() + org.plan?.slice(1) || "Starter";
 
           if (org.plan_status === "trial" && org.trial_ends_at) {
-            const msLeft =
-              new Date(org.trial_ends_at).getTime() - Date.now();
-            trialDaysLeft = Math.max(
-              0,
-              Math.ceil(msLeft / (1000 * 60 * 60 * 24))
-            );
+            const msLeft = new Date(org.trial_ends_at).getTime() - Date.now();
+            trialDaysLeft = Math.max(0, Math.ceil(msLeft / 86400000));
           } else {
             trialDaysLeft = 0;
           }
@@ -84,7 +95,7 @@ export default async function DashboardLayout({
       }
     }
   } catch {
-    // Supabase env vars not set or network issue — render layout with defaults
+    // DB/env not ready — use defaults
   }
 
   return (
@@ -96,9 +107,10 @@ export default async function DashboardLayout({
         trialDaysLeft={trialDaysLeft}
         userInitials={userInitials}
       />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <AppContextMenu>
         <main className="flex-1 overflow-y-auto p-5">{children}</main>
-      </div>
+      </AppContextMenu>
+      <AIChatBot />
     </div>
   );
 }
