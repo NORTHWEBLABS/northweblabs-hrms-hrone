@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  LineChart, Line, AreaChart, Area, PieChart as RePieChart, Pie, Cell,
+  LineChart, Line, AreaChart, Area, PieChart as RePieChart, Pie, 
   Legend, ComposedChart,
 } from "recharts";
 
