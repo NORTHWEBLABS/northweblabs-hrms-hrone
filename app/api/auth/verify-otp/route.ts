@@ -55,8 +55,6 @@ export async function POST(request: NextRequest) {
 
     console.log("[verify] User lookup:", { found: !!user, role: user?.role, org_id: user?.org_id });
 
-    console.log("[verify] User lookup:", { found: !!user, org_id: user?.org_id });
-
     if (!user) {
       const { data: newUser, error: createErr } = await supabase
         .from("users")
@@ -82,24 +80,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 3. Fetch org name if user has org
+    // 4. Fetch org name if user has org
     let orgName = "";
     if (user.org_id) {
       const { data: org } = await supabase.from("organizations").select("brand_name, name").eq("id", user.org_id).maybeSingle();
       orgName = org?.brand_name || org?.name || "";
     }
 
-    // 4. Create session WITH org_id and role
+    // 5. Create session WITH org_id and role
     const sessionToken = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    await supabase.from("user_sessions").insert({
+    const { error: sessErr } = await supabase.from("user_sessions").insert({
       token: sessionToken,
       user_id: user.id,
       org_id: user.org_id || null,
       role: user.role || "employee",
       expires_at: expiresAt,
     });
+
+    if (sessErr) {
+      console.error("[verify] Session insert failed:", sessErr.message);
+      return NextResponse.json({ error: "Could not start session" }, { status: 500 });
+    }
 
     console.log("[verify] Session created:", { token: sessionToken.slice(0, 8), org_id: user.org_id, role: user.role });
 
