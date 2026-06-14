@@ -69,35 +69,31 @@ export async function POST(request: NextRequest) {
 
     if (!user) return NextResponse.json({ error: "Failed to create account" }, { status: 500 });
 
-    // 3. Create session
+    // 3. Fetch org name if user has org
+    let orgName = "";
+    if (user.org_id) {
+      const { data: org } = await supabase.from("organizations").select("brand_name, name").eq("id", user.org_id).maybeSingle();
+      orgName = org?.brand_name || org?.name || "";
+    }
+
+    // 4. Create session WITH org_id and role
     const sessionToken = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const { error: sessionErr } = await supabase.from("user_sessions").insert({
+    await supabase.from("user_sessions").insert({
       token: sessionToken,
       user_id: user.id,
+      org_id: user.org_id || null,
+      role: user.role || "employee",
       expires_at: expiresAt,
     });
 
-    console.log("[verify] Session insert:", { token: sessionToken.slice(0, 8), err: sessionErr?.message });
-
-    // If session insert failed, try with different columns
-    if (sessionErr) {
-      console.log("[verify] Retrying session with employee_id...");
-      const { error: retry } = await supabase.from("user_sessions").insert({
-        token: sessionToken,
-        employee_id: user.id,
-        user_id: user.id,
-        org_id: user.org_id || null,
-        expires_at: expiresAt,
-      });
-      console.log("[verify] Retry result:", retry?.message || "ok");
-    }
+    console.log("[verify] Session created:", { token: sessionToken.slice(0, 8), org_id: user.org_id, role: user.role });
 
     return NextResponse.json({
       success: true,
       sessionToken,
-      user: { id: user.id, email: user.email, name: user.full_name, role: user.role, org_id: user.org_id },
+      user: { id: user.id, email: user.email, name: user.full_name, role: user.role, org_id: user.org_id, orgName },
       hasOrg: !!user.org_id,
     });
   } catch (err: any) {
