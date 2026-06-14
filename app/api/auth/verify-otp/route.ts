@@ -69,6 +69,19 @@ export async function POST(request: NextRequest) {
 
     if (!user) return NextResponse.json({ error: "Failed to create account" }, { status: 500 });
 
+    // 3. Check if employee is approved (block unapproved employees)
+    if (user.org_id && user.role === "employee") {
+      const { data: emp } = await supabase.from("employees")
+        .select("approval_status, full_name")
+        .eq("email", cleanEmail).eq("org_id", user.org_id).maybeSingle();
+      if (emp && emp.approval_status === "pending") {
+        return NextResponse.json({ error: "Your account is pending approval. Please contact your HR/Admin." }, { status: 403 });
+      }
+      if (emp && emp.approval_status === "rejected") {
+        return NextResponse.json({ error: "Your onboarding was not approved. Please contact your HR/Admin." }, { status: 403 });
+      }
+    }
+
     // 3. Fetch org name if user has org
     let orgName = "";
     if (user.org_id) {

@@ -264,13 +264,54 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
         });
       } catch {}
 
-      // Notification (ignore errors)
+      // Notification to org admin/owner (use USER id, not employee id)
       try {
-        await sb.from("notifications").insert({
-          org_id: oid, type: "employee_added", title: "New employee added",
-          message: `${fullName} has been added. Onboarding link generated.`,
-          employee_id: data.id,
-        });
+        const adminEmail = localStorage.getItem("userEmail") || "";
+        const { data: adminUser } = await sb.from("users").select("id").eq("email", adminEmail).eq("org_id", oid).maybeSingle();
+        // Find all admins/owners to notify
+        const { data: admins } = await sb.from("users").select("id").eq("org_id", oid).in("role", ["owner", "admin", "hr"]);
+        if (admins) {
+          for (const admin of admins) {
+            await sb.from("notifications").insert({
+              org_id: oid, user_id: admin.id,
+              type: "employee_added", title: "New employee pending approval",
+              body: `${fullName} (${form.designation}) has been added and is pending approval.`,
+              message: `${fullName} has been added. Onboarding link generated.`,
+              link: "/employees",
+            });
+          }
+        }
+      } catch {}
+
+      // Send email to employee (onboarding confirmation)
+      try {
+        if (form.email) {
+          await fetch("/api/auth/send-invite", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: form.email,
+              orgName: localStorage.getItem("activeOrgName") || "Your company",
+              ownerName: fullName,
+              orgId: oid,
+            }),
+          });
+        }
+      } catch {}
+
+      // Send email to admin (approval notification)
+      try {
+        const adminEmail = localStorage.getItem("userEmail") || "";
+        if (adminEmail) {
+          await fetch("/api/auth/send-invite", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: adminEmail,
+              orgName: `${fullName} needs approval`,
+              ownerName: "Admin",
+              orgId: oid,
+            }),
+          });
+        }
       } catch {}
 
       onSaved(data as Employee);
