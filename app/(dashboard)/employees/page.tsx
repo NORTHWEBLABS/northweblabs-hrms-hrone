@@ -264,53 +264,31 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
         });
       } catch {}
 
-      // Notification to org admin/owner (use USER id, not employee id)
-      try {
-        const adminEmail = localStorage.getItem("userEmail") || "";
-        const { data: adminUser } = await sb.from("users").select("id").eq("email", adminEmail).eq("org_id", oid).maybeSingle();
-        // Find all admins/owners to notify
-        const { data: admins } = await sb.from("users").select("id").eq("org_id", oid).in("role", ["owner", "admin", "hr"]);
-        if (admins) {
-          for (const admin of admins) {
-            await sb.from("notifications").insert({
-              org_id: oid, user_id: admin.id,
-              type: "employee_added", title: "New employee pending approval",
-              body: `${fullName} (${form.designation}) has been added and is pending approval.`,
-              message: `${fullName} has been added. Onboarding link generated.`,
-              link: "/employees",
-            });
-          }
-        }
-      } catch {}
-
-      // Send email to employee (onboarding confirmation)
+      // ── NOTIFICATIONS + EMAILS ──
+      // Find approver: HR head first → owner/admin fallback
+      let approverId = "", approverName = "", approverEmail = "";
+      const { data: hrUsers } = await sb.from("users").select("id, full_name, email").eq("org_id", oid).eq("role", "hr").limit(1);
+      if (hrUsers?.length) { approverId = hrUsers[0].id; approverName = hrUsers[0].full_name; approverEmail = hrUsers[0].email; }
+      if (!approverId) {
+        const { data: ow } = await sb.from("users").select("id, full_name, email").eq("org_id", oid).in("role", ["owner","admin"]).limit(1);
+        if (ow?.length) { approverId = ow[0].id; approverName = ow[0].full_name; approverEmail = ow[0].email; }
+      }
+      // In-app notification to approver
+      if (approverId) {
+        try { await sb.from("notifications").insert({ org_id: oid, user_id: approverId, type: "employee_added", title: "New employee pending approval", body: `${fullName} (${form.designation}, ${deptName || "—"}) needs your approval.`, link: "/employees" }); } catch {}
+      }
+      // Email to employee: onboarding done, pending approval
       try {
         if (form.email) {
-          await fetch("/api/auth/send-invite", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: form.email,
-              orgName: localStorage.getItem("activeOrgName") || "Your company",
-              ownerName: fullName,
-              orgId: oid,
-            }),
-          });
+          await fetch("/api/auth/send-onboarding-status", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: form.email, employeeName: fullName, orgName: localStorage.getItem("activeOrgName") || "", designation: form.designation, department: deptName, dateOfJoining: form.date_of_joining, employeeCode: code, type: "employee_pending" }) });
         }
       } catch {}
-
-      // Send email to admin (approval notification)
+      // Email to approver: please review and approve
       try {
-        const adminEmail = localStorage.getItem("userEmail") || "";
-        if (adminEmail) {
-          await fetch("/api/auth/send-invite", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: adminEmail,
-              orgName: `${fullName} needs approval`,
-              ownerName: "Admin",
-              orgId: oid,
-            }),
-          });
+        if (approverEmail) {
+          await fetch("/api/auth/send-onboarding-status", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: approverEmail, employeeName: fullName, approverName, orgName: localStorage.getItem("activeOrgName") || "", designation: form.designation, department: deptName, dateOfJoining: form.date_of_joining, employeeCode: code, type: "admin_approve", orgId: oid }) });
         }
       } catch {}
 
