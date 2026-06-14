@@ -65,11 +65,10 @@ export async function POST(req: NextRequest) {
         const total = pol.prorate_on_join
           ? prorate(Number(pol.annual_quota) || 0, emp.date_of_joining, year)
           : (Number(pol.annual_quota) || 0);
-        rows.push({
+rows.push({
           employee_id: emp.id, leave_type: pol.leave_type, year,
-          total, used: 0, remaining: total,
-        });
-      }
+          total, used: 0,
+        });      }
     }
 
     if (rows.length === 0) {

@@ -1,16 +1,6 @@
 "use client";
 // Route: app/me/page.tsx — Employee Dashboard
-// Real columns: employees(id,org_id,employee_code,full_name,phone,email,department,designation,
-//   date_of_joining,date_of_birth,gender,aadhaar_last4,pan,bank_account,bank_ifsc,bank_name,
-//   uan,esic_ip_number,salary_type,basic_salary,hra,special_allowance,other_allowance,gross_salary,
-//   pf_applicable,esic_applicable,pt_applicable,status,whatsapp_registered,created_at,
-//   invite_token,invite_expires_at,onboarding_completed)
-// attendance(id,org_id,employee_id,date,check_in,check_out,status,source,latitude,longitude,notes,created_at)
-// payslips(id,org_id,payroll_run_id,employee_id,month,year,working_days,days_present,days_absent,
-//   basic_earned,hra_earned,special_allowance_earned,other_allowance_earned,gross_earned,
-//   overtime_amount,bonus,pf_employee,esic_employee,pt_amount,tds_amount,other_deductions,
-//   total_deductions,net_payable,pf_employer,esic_employer,pdf_url,whatsapp_sent,created_at)
-// leave_requests(id,employee_id,leave_type,from_date,to_date,days,reason,status,approved_by,remarks,created_at)
+// Leave balance now read from leave_balances (policy engine), not hardcoded.
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -32,6 +22,7 @@ function useSB() {
 interface UserProfile { id: string; full_name: string | null; email: string; phone: string | null; role: string | null; org_id: string | null; created_at: string; }
 interface EmpRecord { id: string; full_name: string | null; department: string | null; designation: string | null; gross_salary: number | null; onboarding_completed: boolean | null; employee_code: string | null; date_of_joining: string | null; }
 interface OrgInfo { id: string; name: string; industry: string | null; city: string | null; state: string | null; }
+interface Balance { leave_type: string; total: number; used: number; remaining: number | null; }
 
 const greet = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const greetIcon = () => { const h = new Date().getHours(); return h < 6 ? <Moon className="w-5 h-5 text-indigo-400" /> : h < 12 ? <Sun className="w-5 h-5 text-amber-400" /> : h < 17 ? <Cloud className="w-5 h-5 text-blue-400" /> : <Moon className="w-5 h-5 text-indigo-400" />; };
@@ -69,6 +60,7 @@ export default function MePage() {
   const [monthAttendance, setMonthAttendance] = useState({ present: 0, total: 0 });
   const [weekAttendance, setWeekAttendance] = useState<Record<number, string>>({});
   const [latestPayslip, setLatestPayslip] = useState<{ net_payable: number; gross_earned: number; month: number; year: number } | null>(null);
+  const [balances, setBalances] = useState<Balance[]>([]);
   const [leavesTaken, setLeavesTaken] = useState(0);
   const [pendingLeaves, setPendingLeaves] = useState(0);
   // Apply leave modal
@@ -112,7 +104,6 @@ export default function MePage() {
           if (mgr) {
             managerId = mgr.id;
             managerName = mgr.full_name || "";
-            // Find manager's USER id (for notifications)
             if (mgr.email) {
               const { data: mgrUser } = await sb.from("users").select("id").eq("email", mgr.email).eq("org_id", orgId).maybeSingle();
               managerUserId = mgrUser?.id || "";
@@ -120,22 +111,22 @@ export default function MePage() {
           }
         }
       }
-      // Fallback: find any admin/owner user
+      // Fallback: any admin/owner/hr user
       if (!managerId) {
         const { data: admins } = await sb.from("users").select("id, full_name").eq("org_id", orgId).in("role", ["owner", "admin", "hr"]).limit(1);
         if (admins && admins.length > 0) { managerId = admins[0].id; managerName = admins[0].full_name || "Admin"; managerUserId = admins[0].id; }
       }
-      if (!managerUserId) managerUserId = managerId; // last resort
+      if (!managerUserId) managerUserId = managerId;
 
       // 1. Create leave request in leaves table (for leaves page)
       try {
         await sb.from("leaves").insert({
-          org_id: orgId, employee_id: empId, leave_type: leaveType.toLowerCase().replace(/\s/g, "_"),
+          org_id: orgId, employee_id: empId, leave_type: leaveType,
           from_date: leaveFrom, to_date: leaveTo, days: leaveDays, reason: leaveReason || null, status: "pending",
         });
-      } catch {} // Table might not exist yet
+      } catch {}
 
-      // 2. Create approval request (for approvals page)
+      // 2. Create approval request — payload carries employee_id so approval can decrement balance
       if (managerId) {
         const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
         const { data: req } = await sb.from("approval_requests").insert({
@@ -146,10 +137,9 @@ export default function MePage() {
           assigned_to: managerUserId || managerId, assigned_to_name: managerName,
           status: "pending", escalation_level: 0, tat_hours: 24,
           deadline_at: deadline,
-          payload: { leave_type: leaveType, from: leaveFrom, to: leaveTo, days: leaveDays },
+          payload: { employee_id: empId, leave_type: leaveType, from: leaveFrom, to: leaveTo, days: leaveDays },
         }).select().maybeSingle();
 
-        // 3. Send notification to manager's USER id
         if (req) {
           await sb.from("notifications").insert({
             org_id: orgId, user_id: managerUserId || managerId,
@@ -162,6 +152,13 @@ export default function MePage() {
             acted_by: user?.id || empId, acted_by_name: empName,
             notes: `Applied for ${leaveType}`, from_status: null, to_status: "pending",
           });
+          // Email manager + CC HR/admin
+          try {
+            await fetch("/api/approvals/notify", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ requestId: req.id, event: "applied" }),
+            });
+          } catch {}
         }
       }
 
@@ -179,14 +176,12 @@ export default function MePage() {
     try {
       let userData: UserProfile | null = null;
 
-      // 1: Use localStorage email (fastest, most reliable)
       const storedEmail = localStorage.getItem("userEmail");
       if (storedEmail) {
         const { data } = await sb.from("users").select("*").eq("email", storedEmail.toLowerCase().trim()).maybeSingle();
         if (data) userData = data as UserProfile;
       }
 
-      // 2: Try /api/auth/me
       if (!userData) {
         try {
           const res = await fetch("/api/auth/me", { credentials: "same-origin" });
@@ -197,7 +192,6 @@ export default function MePage() {
         } catch {}
       }
 
-      // 3: Try cookie → user_sessions
       if (!userData) {
         const token = document.cookie.split(";").map(c => c.trim()).find(c => c.startsWith("session_token="))?.split("=")[1];
         if (token) {
@@ -219,20 +213,17 @@ export default function MePage() {
       setUser(userData);
       if (userData.email) localStorage.setItem("userEmail", userData.email);
 
-      // Get employee record
       const { data: empData } = await sb.from("employees")
         .select("id, full_name, department, designation, gross_salary, onboarding_completed, employee_code, date_of_joining")
         .eq("email", userData.email).maybeSingle();
       if (empData) setEmp(empData as EmpRecord);
 
-      // Get org
       const orgId = userData.org_id || localStorage.getItem("activeOrgId") || "";
       if (orgId) {
         const { data: orgData } = await sb.from("organizations").select("id, name, industry, city, state").eq("id", orgId).maybeSingle();
         if (orgData) { setOrg(orgData as OrgInfo); localStorage.setItem("activeOrgId", orgData.id); localStorage.setItem("activeOrgName", orgData.name); }
       }
 
-      // Get employee ID for data queries
       const empId = empData?.id;
       if (!empId) { setLoading(false); return; }
 
@@ -250,7 +241,6 @@ export default function MePage() {
       const { data: monthAtt } = await sb.from("attendance").select("date, status")
         .eq("employee_id", empId).gte("date", monthStart).lte("date", monthEnd);
       const presentDays = (monthAtt || []).filter(a => ["present", "late", "wfh", "half_day"].includes(a.status)).length;
-      // Working days = weekdays up to today
       const workDays = (() => { let d = 0; const s = new Date(monthStart); const e = new Date(Math.min(now.getTime(), new Date(monthEnd).getTime())); while (s <= e) { if (s.getDay() > 0 && s.getDay() < 6) d++; s.setDate(s.getDate() + 1); } return d; })();
       setMonthAttendance({ present: presentDays, total: workDays });
 
@@ -272,13 +262,17 @@ export default function MePage() {
         .eq("employee_id", empId).order("year", { ascending: false }).order("month", { ascending: false }).limit(1).maybeSingle();
       if (payslip) setLatestPayslip(payslip);
 
-      // Leave requests
-      const { data: leaves } = await sb.from("leave_requests").select("days, status")
-        .eq("employee_id", empId);
-      const taken = (leaves || []).filter(l => l.status === "approved").reduce((s, l) => s + (l.days || 0), 0);
-      const pending = (leaves || []).filter(l => l.status === "pending").length;
+      // Leave balances (from policy engine) — source of truth
+      const { data: bals } = await sb.from("leave_balances")
+        .select("leave_type, total, used, remaining").eq("employee_id", empId).eq("year", yearNum);
+      setBalances((bals || []) as Balance[]);
+      const taken = (bals || []).reduce((s, b) => s + (Number(b.used) || 0), 0);
       setLeavesTaken(taken);
-      setPendingLeaves(pending);
+
+      // Pending = approval_requests of type leave still pending for this user
+      const { data: pendReqs } = await sb.from("approval_requests")
+        .select("id").eq("raised_by", userData.id).eq("type", "leave").eq("status", "pending");
+      setPendingLeaves((pendReqs || []).length);
 
     } catch (err: any) { setError(err.message || "Failed to load profile"); }
     finally { setLoading(false); }
@@ -324,9 +318,11 @@ export default function MePage() {
 
   const name = emp?.full_name || user.full_name || user.email.split("@")[0];
   const onboarded = emp?.onboarding_completed === true;
-  const totalLeave = 12;
-  const leaveBalance = totalLeave - leavesTaken;
+  const balRemaining = (b: Balance) => Number(b.remaining ?? ((b.total || 0) - (b.used || 0))) || 0;
+  const totalLeave = balances.reduce((s, b) => s + (Number(b.total) || 0), 0);
+  const leaveBalance = balances.reduce((s, b) => s + balRemaining(b), 0);
   const fmtSalary = (n: number) => n >= 100000 ? `₹${(n / 100000).toFixed(1)}L` : `₹${n.toLocaleString("en-IN")}`;
+  const balColors = ["bg-blue-500", "bg-amber-500", "bg-emerald-500", "bg-violet-500", "bg-rose-500"];
 
   return (
     <>
@@ -362,7 +358,7 @@ export default function MePage() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { label: "Today's status", value: checkedIn ? "Checked in" : "Not checked in", sub: checkedIn ? `Since ${checkInTime}` : "Mark attendance", icon: <Clock className="w-5 h-5" />, iconBg: "bg-emerald-50", iconColor: "text-emerald-500" },
-                { label: "Leave balance", value: leaveBalance.toString(), sub: `${leavesTaken} used of ${totalLeave}`, icon: <CalendarDays className="w-5 h-5" />, iconBg: "bg-blue-50", iconColor: "text-blue-500" },
+                { label: "Leave balance", value: leaveBalance.toString(), sub: totalLeave > 0 ? `${leavesTaken} used of ${totalLeave}` : "Not allocated", icon: <CalendarDays className="w-5 h-5" />, iconBg: "bg-blue-50", iconColor: "text-blue-500" },
                 { label: "This month", value: `${monthAttendance.present}/${monthAttendance.total}`, sub: "Days attended", icon: <TrendingUp className="w-5 h-5" />, iconBg: "bg-violet-50", iconColor: "text-violet-500" },
                 { label: "Pending requests", value: pendingLeaves.toString(), sub: pendingLeaves > 0 ? "Awaiting approval" : "All caught up", icon: <FileText className="w-5 h-5" />, iconBg: "bg-amber-50", iconColor: "text-amber-500" },
               ].map((c, i) => (
@@ -527,20 +523,21 @@ export default function MePage() {
               </div>
             </div>
 
-            {/* Leave balance */}
+            {/* Leave balance — from leave_balances */}
             <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
               <div className="flex items-center gap-2 mb-4"><CalendarDays className="w-4 h-4 text-gray-400" /><h3 className="font-bold text-gray-900 text-sm">Leave balance</h3></div>
               <div className="space-y-3.5">
-                {[
-                  { label: "Casual leave", used: Math.min(leavesTaken, 12), total: 12, color: "bg-blue-500" },
-                  { label: "Sick leave", used: 0, total: 6, color: "bg-amber-500" },
-                  { label: "Earned leave", used: 0, total: 15, color: "bg-emerald-500" },
-                ].map(l => (
-                  <div key={l.label}>
-                    <div className="flex items-center justify-between mb-1"><span className="text-xs text-gray-500">{l.label}</span><span className="text-xs font-bold text-gray-700">{l.total - l.used}/{l.total}</span></div>
-                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full ${l.color} rounded-full`} style={{ width: `${((l.total - l.used) / l.total) * 100}%` }} /></div>
-                  </div>
-                ))}
+                {balances.length === 0 && <p className="text-xs text-gray-400">No leave balances allocated yet. Ask your HR/admin to allocate.</p>}
+                {balances.map((b, i) => {
+                  const total = Number(b.total) || 0;
+                  const remaining = balRemaining(b);
+                  return (
+                    <div key={b.leave_type + i}>
+                      <div className="flex items-center justify-between mb-1"><span className="text-xs text-gray-500">{b.leave_type}</span><span className="text-xs font-bold text-gray-700">{remaining}/{total}</span></div>
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full ${balColors[i % balColors.length]} rounded-full`} style={{ width: `${total > 0 ? (remaining / total) * 100 : 0}%` }} /></div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
