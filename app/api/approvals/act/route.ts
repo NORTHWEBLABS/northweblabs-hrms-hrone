@@ -96,7 +96,8 @@ export async function POST(req: NextRequest) {
             warnings.push(`No ${leaveType} balance row for ${yr} — approved without ledger update.`);
           } else {
             const newUsed = (bal.used || 0) + days;
-            await sb.from("leave_balances").update({ used: newUsed, remaining: (bal.total || 0) - newUsed }).eq("id", bal.id);
+            const { error: balErr } = await sb.from("leave_balances").update({ used: newUsed }).eq("id", bal.id);
+            if (balErr) warnings.push(`Balance update failed: ${balErr.message}`);
             if ((bal.total || 0) - newUsed < 0) warnings.push(`Balance for ${leaveType} is now negative.`);
           }
           break;
@@ -147,11 +148,11 @@ export async function POST(req: NextRequest) {
           const bal = (balRows || []).find((b: any) => norm(b.leave_type) === norm(leaveType)) || null;
           if (bal) {
             const newTotal = (bal.total || 0) + credit;
-            await sb.from("leave_balances").update({ total: newTotal, remaining: newTotal - (bal.used || 0) }).eq("id", bal.id);
+            await sb.from("leave_balances").update({ total: newTotal }).eq("id", bal.id);
           } else {
             await sb.from("leave_balances").insert({
               employee_id: employeeId, leave_type: leaveType, year: yr,
-              total: credit, used: 0, remaining: credit,
+              total: credit, used: 0,
             });
           }
           break;

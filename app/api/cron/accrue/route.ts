@@ -50,8 +50,7 @@ async function runAccrual() {
     for (const b of matching) {
       let newTotal = (Number(b.total) || 0) + rate;
       if (cap > 0 && newTotal > cap) { newTotal = cap; capped++; }
-      const newRemaining = newTotal - (Number(b.used) || 0);
-      await supabase.from("leave_balances").update({ total: newTotal, remaining: newRemaining }).eq("id", b.id);
+      await supabase.from("leave_balances").update({ total: newTotal }).eq("id", b.id);
       credited++;
     }
   }
