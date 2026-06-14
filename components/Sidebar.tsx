@@ -24,6 +24,7 @@ const NAV_GROUPS: NavGroup[] = [
     { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard", roles: ["super_admin","owner","admin","hr","manager"] },
     { label: "Organizations", icon: Building2, path: "/organizations", roles: ["super_admin"] },
     { label: "My Dashboard", icon: User, path: "/me" },
+    { label: "My Attendance", icon: CalendarCheck, path: "/my-attendance" },
     { label: "Employees", icon: Users, path: "/employees", roles: ["super_admin","owner","admin","hr"] },
     { label: "Org structure", icon: Network, path: "/org-structure", roles: ["owner","admin","hr"] },
   ]},

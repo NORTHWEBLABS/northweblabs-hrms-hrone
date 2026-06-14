@@ -1,6 +1,6 @@
 "use client";
 // Route: app/me/page.tsx — Employee Dashboard
-// Leave balance now read from leave_balances (policy engine), not hardcoded.
+// Leave balance from leave_balances (policy engine). Quick punch: check-in/out with geo + link to /my-attendance.
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -58,6 +58,8 @@ export default function MePage() {
   // Real data
   const [checkedIn, setCheckedIn] = useState(false);
   const [checkInTime, setCheckInTime] = useState("");
+  const [checkedOutTime, setCheckedOutTime] = useState("");
+  const [todayAttId, setTodayAttId] = useState<string | null>(null);
   const [monthAttendance, setMonthAttendance] = useState({ present: 0, total: 0 });
   const [weekAttendance, setWeekAttendance] = useState<Record<number, string>>({});
   const [latestPayslip, setLatestPayslip] = useState<{ net_payable: number; gross_earned: number; month: number; year: number } | null>(null);
@@ -228,12 +230,14 @@ export default function MePage() {
       const empId = empData?.id;
       if (!empId) { setLoading(false); return; }
 
-      // Today's attendance
-      const { data: todayAtt } = await sb.from("attendance").select("check_in, status")
+      // Today's attendance — capture id + check_out for the quick-punch card
+      const { data: todayAtt } = await sb.from("attendance").select("id, check_in, check_out, status")
         .eq("employee_id", empId).eq("date", todayStr).maybeSingle();
       if (todayAtt && todayAtt.check_in) {
         setCheckedIn(true);
+        setTodayAttId(todayAtt.id);
         setCheckInTime(new Date(todayAtt.check_in).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }));
+        if (todayAtt.check_out) setCheckedOutTime(new Date(todayAtt.check_out).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }));
       }
 
       // This month attendance
@@ -283,23 +287,37 @@ export default function MePage() {
 
   const handleLogout = () => { document.cookie = "session_token=; path=/; max-age=0"; localStorage.clear(); router.push("/employee-login"); };
 
-const handleCheckIn = async () => {
+  const handleCheckIn = async () => {
     if (!emp) return;
     // Fetch offices for geofencing
     const { data: locs } = await sb.from("org_locations")
       .select("id, name, latitude, longitude, geofence_radius_m").eq("org_id", user?.org_id || "");
     const geo = await captureAndEvaluate((locs || []) as any);
-    const { error: err } = await sb.from("attendance").insert({
+    const { data: inserted, error: err } = await sb.from("attendance").insert({
       employee_id: emp.id, org_id: user?.org_id, date: todayStr,
       check_in: new Date().toISOString(), status: "present", source: "web",
       latitude: geo.coords?.latitude ?? null, longitude: geo.coords?.longitude ?? null,
       geo_flagged: geo.geo_flagged, distance_m: geo.distance_m,
-    });
+    }).select("id").maybeSingle();
     if (!err) {
       setCheckedIn(true);
+      if (inserted?.id) setTodayAttId(inserted.id);
       setCheckInTime(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }));
       setMonthAttendance(p => ({ ...p, present: p.present + 1 }));
     }
+  };
+
+  const handleCheckOut = async () => {
+    if (!todayAttId) return;
+    const { data: locs } = await sb.from("org_locations")
+      .select("id, name, latitude, longitude, geofence_radius_m").eq("org_id", user?.org_id || "");
+    const geo = await captureAndEvaluate((locs || []) as any);
+    const { error } = await sb.from("attendance").update({
+      check_out: new Date().toISOString(),
+      check_out_latitude: geo.coords?.latitude ?? null,
+      check_out_longitude: geo.coords?.longitude ?? null,
+    }).eq("id", todayAttId);
+    if (!error) setCheckedOutTime(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }));
   };
 
   if (loading) return (
@@ -388,7 +406,14 @@ const handleCheckIn = async () => {
                   <div className="text-center py-4">
                     <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-3"><CheckCircle2 className="w-7 h-7 text-emerald-500" /></div>
                     <p className="text-sm font-bold text-gray-900 mb-0.5">Checked in at {checkInTime}</p>
-                    <p className="text-xs text-gray-400">Have a productive day!</p>
+                    {checkedOutTime ? (
+                      <p className="text-xs text-gray-400">Checked out at {checkedOutTime}</p>
+                    ) : (
+                      <button onClick={handleCheckOut} className="mt-3 w-full py-2.5 bg-gradient-to-r from-indigo-500 to-violet-500 text-white font-semibold text-sm rounded-xl hover:from-indigo-600 hover:to-violet-600 transition flex items-center justify-center gap-2">
+                        <LogOut className="w-4 h-4" />Check out
+                      </button>
+                    )}
+                    <a href="/my-attendance" className="mt-2 inline-block text-xs text-indigo-500 font-semibold hover:text-indigo-700">View full attendance →</a>
                   </div>
                 ) : (
                   <div className="text-center py-4">
@@ -396,6 +421,7 @@ const handleCheckIn = async () => {
                     <button onClick={handleCheckIn} className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-semibold text-sm rounded-xl hover:from-emerald-600 hover:to-teal-600 transition shadow-md shadow-emerald-200/40 flex items-center justify-center gap-2">
                       <Clock className="w-4 h-4" />Check In Now
                     </button>
+                    <a href="/my-attendance" className="mt-3 inline-block text-xs text-indigo-500 font-semibold hover:text-indigo-700">View full attendance →</a>
                   </div>
                 )}
                 <div className="mt-5 pt-4 border-t border-gray-100">
