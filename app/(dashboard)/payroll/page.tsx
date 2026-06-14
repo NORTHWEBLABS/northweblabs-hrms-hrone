@@ -9,7 +9,7 @@ import {
   Zap, Clock, Building2, Shield,
 } from "lucide-react";
 
-// ─── Supabase ─────────────────────────────────────────────────────────────────
+// --- Supabase ---
 function useSupabase() {
   return useMemo(() => createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,7 +17,7 @@ function useSupabase() {
   ), []);
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// --- Types ---
 interface Employee {
   id: string;
   full_name: string;
@@ -57,10 +57,18 @@ interface PayslipRow {
   esic_employer: number;
   days_present: number;
   working_days: number;
+  leave_days: number;
+  calendar_days: number;
+  lop_days: number;
+  lop_days_waived: number;
+  lop_amount: number;
+  goodwill_amount: number;
+  goodwill_note: string | null;
   override_bonus: number;
   override_other_deductions: number;
   override_other_allowance: number;
   override_days_present: number;
+  override_lop_waived: number;
 }
 
 interface PayrollRun {
@@ -78,7 +86,7 @@ interface PayrollRun {
   created_at: string;
 }
 
-// ─── Payroll Engine ───────────────────────────────────────────────────────────
+// --- Payroll Engine ---
 const PT_MAHARASHTRA = (gross: number, month: number): number => {
   if (gross < 7500) return 0;
   if (gross <= 10000) return 175;
@@ -97,13 +105,33 @@ const TDS_NEW_REGIME = (annualGross: number): number => {
   return Math.round(tax / 12);
 };
 
-function calcPayslip(emp: Employee, daysPresent: number, workingDays: number, month: number, bonus: number, otherDed: number, otherAllow: number): PayslipRow {
-  const ratio = workingDays > 0 ? daysPresent / workingDays : 1;
-  const basicEarned = Math.round(emp.basic_salary * ratio);
-  const hraEarned = Math.round(emp.hra * ratio);
-  const specialEarned = Math.round(emp.special_allowance * ratio);
-  const otherEarned = Math.round((emp.other_allowance + otherAllow) * ratio);
-  const grossEarned = basicEarned + hraEarned + specialEarned + otherEarned + bonus;
+function calcPayslip(
+  emp: Employee, daysPresent: number, leaveDays: number, workingDays: number,
+  calendarDays: number, month: number, bonus: number, otherDed: number,
+  otherAllow: number, lopWaivedDays: number
+): PayslipRow {
+  const basicFull = emp.basic_salary;
+  const hraFull = emp.hra;
+  const specialFull = emp.special_allowance;
+  const otherFull = emp.other_allowance + otherAllow;
+  const grossFull = basicFull + hraFull + specialFull + otherFull;
+
+  // LOP: working days not covered by presence or approved leave
+  const paidPresent = daysPresent + leaveDays;
+  const rawLopDays = Math.max(0, workingDays - paidPresent);
+  const waived = Math.min(lopWaivedDays, rawLopDays);
+  const netLopDays = Math.max(0, rawLopDays - waived);
+
+  const perDay = calendarDays > 0 ? grossFull / calendarDays : 0;
+  const lopAmount = Math.round(netLopDays * perDay);
+  const goodwillAmount = Math.round(waived * perDay);
+
+  const grossEarned = Math.round(grossFull - lopAmount) + bonus;
+  const earnedRatio = grossFull > 0 ? (grossFull - lopAmount) / grossFull : 1;
+  const basicEarned = Math.round(basicFull * earnedRatio);
+  const hraEarned = Math.round(hraFull * earnedRatio);
+  const specialEarned = Math.round(specialFull * earnedRatio);
+  const otherEarned = Math.round(otherFull * earnedRatio);
 
   const pfBase = Math.min(basicEarned, 15000);
   const pfEmployee = emp.pf_applicable ? Math.round(pfBase * 0.12) : 0;
@@ -125,12 +153,17 @@ function calcPayslip(emp: Employee, daysPresent: number, workingDays: number, mo
     net_payable: Math.max(0, grossEarned - totalDeductions),
     pf_employer: pfEmployer, esic_employer: esicEmployer,
     days_present: daysPresent, working_days: workingDays,
+    leave_days: leaveDays, calendar_days: calendarDays,
+    lop_days: rawLopDays, lop_days_waived: waived, lop_amount: lopAmount,
+    goodwill_amount: goodwillAmount,
+    goodwill_note: waived > 0 ? `${waived} of ${rawLopDays} LOP day${rawLopDays > 1 ? "s" : ""} waived (good-will)` : null,
     override_bonus: bonus, override_other_deductions: otherDed,
     override_other_allowance: otherAllow, override_days_present: daysPresent,
+    override_lop_waived: lopWaivedDays,
   };
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// --- Helpers ---
 const fmtINR = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day:"numeric", month:"short", year:"numeric" });
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -146,13 +179,17 @@ function getWorkingDays(year: number, month: number): number {
   return count;
 }
 
+function getCalendarDays(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
 const getInitials = (name: string) => name.split(" ").map(w => w[0]).slice(0,2).join("").toUpperCase();
 const avatarColor = (name: string) => {
   const c = ["bg-indigo-100 text-indigo-700","bg-blue-100 text-blue-700","bg-emerald-100 text-emerald-700","bg-amber-100 text-amber-700","bg-purple-100 text-purple-700"];
   return c[name.charCodeAt(0) % c.length];
 };
 
-// ─── Toast ────────────────────────────────────────────────────────────────────
+// --- Toast ---
 function Toast({ message, type, onClose }: { message:string; type:"success"|"error"; onClose:()=>void }) {
   useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
   return (
@@ -165,7 +202,7 @@ function Toast({ message, type, onClose }: { message:string; type:"success"|"err
   );
 }
 
-// ─── Payslip Modal ────────────────────────────────────────────────────────────
+// --- Payslip Modal ---
 function PayslipModal({ row, month, year, orgName, onClose }: { row:PayslipRow; month:number; year:number; orgName:string; onClose:()=>void }) {
   const Section = ({ title, rows, variant }: { title:string; rows:[string,number][]; variant:"earn"|"ded"|"er" }) => (
     <div>
@@ -184,6 +221,10 @@ function PayslipModal({ row, month, year, orgName, onClose }: { row:PayslipRow; 
     </div>
   );
 
+  const netLopDays = row.lop_days - row.lop_days_waived;
+  const grossFullApprox = row.basic_earned + row.hra_earned + row.special_allowance_earned + row.other_allowance_earned + row.lop_amount;
+  const perDayApprox = row.calendar_days > 0 ? Math.round(grossFullApprox / row.calendar_days) : 0;
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-[2px]">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
@@ -198,23 +239,37 @@ function PayslipModal({ row, month, year, orgName, onClose }: { row:PayslipRow; 
           <div className="flex items-end justify-between">
             <div>
               <p className="text-sm font-semibold">{row.employee.full_name}</p>
-              <p className="text-xs text-white/50">{row.employee.designation} · {row.employee.department}</p>
+              <p className="text-xs text-white/50">{row.employee.designation} - {row.employee.department}</p>
               <p className="text-xs text-white/40 mt-0.5 font-mono">{row.employee.employee_code}</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-white/50">Pay period</p>
               <p className="text-sm font-semibold">{getMonthName(month)} {year}</p>
-              <p className="text-xs text-white/50">{row.days_present}/{row.working_days} days</p>
+              <p className="text-xs text-white/50">{row.days_present} present + {row.leave_days} leave / {row.working_days} working</p>
             </div>
           </div>
         </div>
 
         <div className="px-6 py-5 flex flex-col gap-4 max-h-[55vh] overflow-y-auto">
-          <Section title="Earnings" variant="earn" rows={[
+          <Section title="Earnings (full)" variant="earn" rows={[
             ["Basic salary", row.basic_earned], ["HRA", row.hra_earned],
             ["Special allowance", row.special_allowance_earned], ["Other allowance", row.other_allowance_earned],
             ["Bonus", row.bonus],
           ]}/>
+
+          {row.lop_amount > 0 && (
+            <div className="flex items-center justify-between px-4 py-2.5 bg-red-50 border border-red-100 rounded-lg text-sm">
+              <span className="text-red-700">Loss of pay ({netLopDays} day{netLopDays !== 1 ? "s" : ""} @ {fmtINR(perDayApprox)}/day)</span>
+              <span className="font-mono text-red-600">-{fmtINR(row.lop_amount)}</span>
+            </div>
+          )}
+          {row.goodwill_amount > 0 && (
+            <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-50 border border-emerald-100 rounded-lg text-sm">
+              <span className="text-emerald-700">Good-will adjustment <span className="text-xs text-emerald-500 block">{row.goodwill_note}</span></span>
+              <span className="font-mono text-emerald-600">+{fmtINR(row.goodwill_amount)}</span>
+            </div>
+          )}
+
           <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm font-bold">
             <span className="text-emerald-800">Gross earned</span>
             <span className="font-mono text-emerald-900">{fmtINR(row.gross_earned)}</span>
@@ -238,11 +293,11 @@ function PayslipModal({ row, month, year, orgName, onClose }: { row:PayslipRow; 
               <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0"/>
               <div>
                 <p className="text-xs font-semibold text-gray-700">{row.employee.bank_name}</p>
-                <p className="text-xs text-gray-400 font-mono">A/C ****{row.employee.bank_account.slice(-4)} · {row.employee.bank_ifsc}</p>
+                <p className="text-xs text-gray-400 font-mono">A/C ****{row.employee.bank_account.slice(-4)} - {row.employee.bank_ifsc}</p>
               </div>
             </div>
           )}
-          <p className="text-xs text-gray-400 text-center">Computer-generated salary slip · {getMonthName(month)} {year}</p>
+          <p className="text-xs text-gray-400 text-center">Computer-generated salary slip - {getMonthName(month)} {year}</p>
         </div>
 
         <div className="px-6 py-4 border-t border-gray-100 flex gap-2">
@@ -257,7 +312,7 @@ function PayslipModal({ row, month, year, orgName, onClose }: { row:PayslipRow; 
   );
 }
 
-// ─── Override Cell ────────────────────────────────────────────────────────────
+// --- Override Cell ---
 function OverrideCell({ value, onChange, prefix="₹" }: { value:number; onChange:(v:number)=>void; prefix?:string }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(String(value));
@@ -278,7 +333,7 @@ function OverrideCell({ value, onChange, prefix="₹" }: { value:number; onChang
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// --- Main Page ---
 export default function PayrollPage() {
   const supabase = useSupabase();
   const now = new Date();
@@ -297,8 +352,10 @@ export default function PayrollPage() {
   const [expandedRow, setExpandedRow] = useState<string|null>(null);
   const [payslipModal, setPayslipModal] = useState<PayslipRow|null>(null);
   const [toast, setToast] = useState<{message:string;type:"success"|"error"}|null>(null);
+  const [unmarkedPresent, setUnmarkedPresent] = useState(true); // safety: unmarked working days = present
 
   const workingDays = useMemo(() => getWorkingDays(selectedYear, selectedMonth), [selectedYear, selectedMonth]);
+  const calendarDays = useMemo(() => getCalendarDays(selectedYear, selectedMonth), [selectedYear, selectedMonth]);
 
   const resolveOrg = useCallback(async (): Promise<string> => {
     if (orgId) return orgId;
@@ -325,38 +382,62 @@ export default function PayrollPage() {
       const { data: org } = await supabase.from("organizations").select("name").eq("id", oid).maybeSingle();
       if (org?.name) setOrgName(org.name);
 
-      const [{ data: emps }, { data: run }, { data: att }, { data: past }] = await Promise.all([
+      const monthStart = `${selectedYear}-${String(selectedMonth).padStart(2,"0")}-01`;
+      const monthEnd = `${selectedYear}-${String(selectedMonth).padStart(2,"0")}-${String(getCalendarDays(selectedYear, selectedMonth)).padStart(2,"0")}`;
+
+      const [{ data: emps }, { data: run }, { data: att }, { data: past }, { data: lvs }] = await Promise.all([
         supabase.from("employees").select("id,full_name,employee_code,department,designation,basic_salary,hra,special_allowance,other_allowance,gross_salary,pf_applicable,esic_applicable,pt_applicable,salary_type,bank_name,bank_account,bank_ifsc")
           .eq("org_id", oid).eq("status","active").order("full_name"),
         supabase.from("payroll_runs").select("*").eq("org_id", oid).eq("month", selectedMonth).eq("year", selectedYear).maybeSingle(),
-        supabase.from("attendance").select("employee_id,status")
-          .eq("org_id", oid)
-          .gte("date", `${selectedYear}-${String(selectedMonth).padStart(2,"0")}-01`)
-          .lte("date", `${selectedYear}-${String(selectedMonth).padStart(2,"0")}-${String(new Date(selectedYear, selectedMonth, 0).getDate()).padStart(2,"0")}`),
+        supabase.from("attendance").select("employee_id,status,date").eq("org_id", oid).gte("date", monthStart).lte("date", monthEnd),
         supabase.from("payroll_runs").select("*").eq("org_id", oid).order("year",{ascending:false}).order("month",{ascending:false}).limit(12),
+        supabase.from("leaves").select("employee_id,from_date,to_date,days,status").eq("org_id", oid).eq("status","approved")
+          .lte("from_date", monthEnd).gte("to_date", monthStart),
       ]);
 
+      // Present-equivalent days + explicit absent count
       const presenceMap: Record<string,number> = {};
+      const absentMap: Record<string,number> = {};
       (att??[]).forEach((a:{employee_id:string;status:string}) => {
-        if (a.status==="present"||a.status==="late") presenceMap[a.employee_id]=(presenceMap[a.employee_id]??0)+1;
+        if (a.status==="present"||a.status==="late"||a.status==="wfh") presenceMap[a.employee_id]=(presenceMap[a.employee_id]??0)+1;
         else if (a.status==="half_day") presenceMap[a.employee_id]=(presenceMap[a.employee_id]??0)+0.5;
+        else if (a.status==="absent") absentMap[a.employee_id]=(absentMap[a.employee_id]??0)+1;
+      });
+
+      // Approved-leave working days within month
+      const leaveMap: Record<string,number> = {};
+      (lvs??[]).forEach((l:{employee_id:string;from_date:string;to_date:string}) => {
+        const start = new Date(Math.max(new Date(l.from_date).getTime(), new Date(monthStart).getTime()));
+        const end = new Date(Math.min(new Date(l.to_date).getTime(), new Date(monthEnd).getTime()));
+        let d = 0; const c = new Date(start);
+        while (c <= end) { if (c.getDay() !== 0 && c.getDay() !== 6) d++; c.setDate(c.getDate()+1); }
+        leaveMap[l.employee_id] = (leaveMap[l.employee_id] ?? 0) + d;
       });
 
       setEmployees((emps??[]) as Employee[]);
       setExistingRun(run as PayrollRun|null);
       setPastRuns((past??[]) as PayrollRun[]);
-      setPayslips((emps??[]).map(emp => calcPayslip(
-        emp as Employee,
-        presenceMap[emp.id] ?? workingDays,
-        workingDays, selectedMonth, 0, 0, 0
-      )));
+
+      const wd = getWorkingDays(selectedYear, selectedMonth);
+      const cd = getCalendarDays(selectedYear, selectedMonth);
+      setPayslips((emps??[]).map(emp => {
+        const present = presenceMap[emp.id] ?? 0;
+        const leave = leaveMap[emp.id] ?? 0;
+        const absent = absentMap[emp.id] ?? 0;
+        // If unmarkedPresent: paid days = working - explicit absent - (leave counted separately).
+        // present-equiv used by calc = working - absent - leave  (so unmarked days count as present)
+        const effectivePresent = unmarkedPresent
+          ? Math.max(0, wd - absent - leave)
+          : present;
+        return calcPayslip(emp as Employee, effectivePresent, leave, wd, cd, selectedMonth, 0, 0, 0, 0);
+      }));
     } catch (err) {
       console.error(err);
       setToast({message:"Failed to load payroll data",type:"error"});
     } finally {
       setLoading(false);
     }
-  }, [resolveOrg, supabase, selectedMonth, selectedYear, workingDays]);
+  }, [resolveOrg, supabase, selectedMonth, selectedYear, unmarkedPresent]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
   useEffect(() => {
@@ -372,7 +453,8 @@ export default function PayrollPage() {
       const bn = field==="override_bonus" ? value : row.override_bonus;
       const od = field==="override_other_deductions" ? value : row.override_other_deductions;
       const oa = field==="override_other_allowance" ? value : row.override_other_allowance;
-      return calcPayslip(row.employee, dp, workingDays, selectedMonth, bn, od, oa);
+      const wv = field==="override_lop_waived" ? value : row.override_lop_waived;
+      return calcPayslip(row.employee, dp, row.leave_days, workingDays, calendarDays, selectedMonth, bn, od, oa, wv);
     }));
   };
 
@@ -403,7 +485,11 @@ export default function PayrollPage() {
       const { error:se } = await supabase.from("payslips").insert(payslips.map(r => ({
         org_id:oid, payroll_run_id:runId, employee_id:r.employee.id,
         month:selectedMonth, year:selectedYear,
-        working_days:r.working_days, days_present:r.days_present, days_absent:r.working_days-r.days_present,
+        working_days:r.working_days, days_present:r.days_present,
+        days_absent: Math.max(0, r.working_days - r.days_present - r.leave_days),
+        calendar_days:r.calendar_days, leave_days:r.leave_days,
+        lop_days:r.lop_days, lop_days_waived:r.lop_days_waived, lop_amount:r.lop_amount,
+        goodwill_amount:r.goodwill_amount, goodwill_note:r.goodwill_note,
         basic_earned:r.basic_earned, hra_earned:r.hra_earned,
         special_allowance_earned:r.special_allowance_earned, other_allowance_earned:r.other_allowance_earned,
         gross_earned:r.gross_earned, bonus:r.bonus,
@@ -434,6 +520,8 @@ export default function PayrollPage() {
   const totalNet   = payslips.reduce((a,r)=>a+r.net_payable,0);
   const totalPfEr  = payslips.reduce((a,r)=>a+r.pf_employer,0);
   const totalEsicEr= payslips.reduce((a,r)=>a+r.esic_employer,0);
+  const totalLop   = payslips.reduce((a,r)=>a+r.lop_amount,0);
+  const totalGoodwill = payslips.reduce((a,r)=>a+r.goodwill_amount,0);
 
   const statusBadge = (s:PayrollRun["status"]) => {
     const map={draft:"bg-gray-100 text-gray-600",processing:"bg-amber-100 text-amber-700",completed:"bg-blue-100 text-blue-700",paid:"bg-emerald-100 text-emerald-700"};
@@ -449,7 +537,7 @@ export default function PayrollPage() {
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-bold text-gray-900">Payroll</h1>
-          <p className="text-xs text-gray-400 mt-0.5">{orgName} · {getMonthName(selectedMonth)} {selectedYear} · {workingDays} working days</p>
+          <p className="text-xs text-gray-400 mt-0.5">{orgName} - {getMonthName(selectedMonth)} {selectedYear} - {workingDays} working / {calendarDays} calendar days</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -511,11 +599,11 @@ export default function PayrollPage() {
                       <td className="px-4 py-3 text-sm font-mono text-gray-700">{fmtINR(run.total_gross)}</td>
                       <td className="px-4 py-3 text-sm font-mono font-bold text-emerald-700">{fmtINR(run.total_net)}</td>
                       <td className="px-4 py-3 text-sm font-mono text-blue-600">{fmtINR(run.total_pf_employer+run.total_esic_employer)}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{run.processed_at?fmtDate(run.processed_at):"—"}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{run.paid_at?fmtDate(run.paid_at):"—"}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{run.processed_at?fmtDate(run.processed_at):"-"}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{run.paid_at?fmtDate(run.paid_at):"-"}</td>
                       <td className="px-4 py-3">
                         <button onClick={()=>{setSelectedMonth(run.month);setSelectedYear(run.year);setView("run");}}
-                          className="text-xs text-indigo-600 hover:underline font-medium">View →</button>
+                          className="text-xs text-indigo-600 hover:underline font-medium">View</button>
                       </td>
                     </tr>
                   ))}
@@ -529,7 +617,6 @@ export default function PayrollPage() {
       {/* Run payroll */}
       {view==="run" && (
         <>
-          {/* Status banner */}
           {existingRun && (
             <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
               existingRun.status==="paid"?"bg-emerald-50 border-emerald-200":
@@ -539,7 +626,7 @@ export default function PayrollPage() {
                 :<Clock className="w-4 h-4 text-blue-600 flex-shrink-0"/>}
               <p className="text-sm font-medium text-gray-800 flex-1">
                 {existingRun.status==="paid"
-                  ?`Payroll paid on ${existingRun.paid_at?fmtDate(existingRun.paid_at):"—"}`
+                  ?`Payroll paid on ${existingRun.paid_at?fmtDate(existingRun.paid_at):"-"}`
                   :existingRun.status==="completed"
                   ?"Payroll processed. Ready to mark as paid."
                   :"Payroll run in progress"}
@@ -548,14 +635,28 @@ export default function PayrollPage() {
             </div>
           )}
 
+          {/* LOP mode toggle */}
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-white border border-gray-200 rounded-xl">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={unmarkedPresent} onChange={e=>setUnmarkedPresent(e.target.checked)} className="accent-indigo-600 w-4 h-4" />
+              <span className="text-xs font-semibold text-gray-700">Treat unmarked days as present</span>
+            </label>
+            <span className="text-xs text-gray-400">
+              {unmarkedPresent
+                ? "Only days explicitly marked absent (and uncovered by leave) become LOP."
+                : "Any working day without a present/leave record becomes LOP."}
+            </span>
+          </div>
+
           {/* Summary cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
             {[
               {label:"Employees",value:String(employees.length),sub:"Active",icon:<Users className="w-4 h-4"/>,tc:"text-blue-600",bc:"bg-blue-50"},
-              {label:"Total gross",value:fmtINR(totalGross),sub:"All earnings",icon:<TrendingUp className="w-4 h-4"/>,tc:"text-emerald-600",bc:"bg-emerald-50"},
-              {label:"Total deductions",value:fmtINR(totalDed),sub:"PF+ESIC+PT+TDS",icon:<TrendingDown className="w-4 h-4"/>,tc:"text-red-500",bc:"bg-red-50"},
+              {label:"Total gross",value:fmtINR(totalGross),sub:"After LOP",icon:<TrendingUp className="w-4 h-4"/>,tc:"text-emerald-600",bc:"bg-emerald-50"},
+              {label:"LOP deducted",value:fmtINR(totalLop),sub:"Loss of pay",icon:<TrendingDown className="w-4 h-4"/>,tc:"text-red-500",bc:"bg-red-50"},
+              {label:"Good-will",value:fmtINR(totalGoodwill),sub:"LOP waived",icon:<CheckCircle2 className="w-4 h-4"/>,tc:"text-emerald-600",bc:"bg-emerald-50"},
               {label:"Net payable",value:fmtINR(totalNet),sub:"To employees",icon:<IndianRupee className="w-4 h-4"/>,tc:"text-indigo-700",bc:"bg-indigo-50"},
-              {label:"Employer liability",value:fmtINR(totalPfEr+totalEsicEr),sub:"PF+ESIC (ER)",icon:<Shield className="w-4 h-4"/>,tc:"text-amber-600",bc:"bg-amber-50"},
+              {label:"Employer cost",value:fmtINR(totalPfEr+totalEsicEr),sub:"PF+ESIC (ER)",icon:<Shield className="w-4 h-4"/>,tc:"text-amber-600",bc:"bg-amber-50"},
             ].map(s=>(
               <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3">
                 <div className={`w-9 h-9 rounded-lg ${s.bc} ${s.tc} flex items-center justify-center flex-shrink-0`}>{s.icon}</div>
@@ -572,8 +673,8 @@ export default function PayrollPage() {
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-gray-800">{getMonthName(selectedMonth)} {selectedYear} · {employees.length} employees</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Click row to expand · Click values to override</p>
+                <h3 className="text-sm font-semibold text-gray-800">{getMonthName(selectedMonth)} {selectedYear} - {employees.length} employees</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Click row to expand - click values to override - waive LOP days for good-will</p>
               </div>
               <div className="flex items-center gap-2">
                 {existingRun?.status==="completed" && (
@@ -604,10 +705,10 @@ export default function PayrollPage() {
             ):(
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px]">
+                  <table className="w-full min-w-[1000px]">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
-                        {["Employee","Days","Gross","PF (EE)","ESIC","PT","TDS","Bonus","Net payable",""].map(h=>(
+                        {["Employee","Present","Leave","LOP","Gross","PF","ESIC","PT","TDS","Net payable",""].map(h=>(
                           <th key={h} className={`text-xs font-semibold text-gray-500 px-3 py-3 ${h==="Employee"?"text-left px-4":h==="Net payable"?"text-right text-indigo-600":"text-right"}`}>{h}</th>
                         ))}
                       </tr>
@@ -624,7 +725,7 @@ export default function PayrollPage() {
                                 </div>
                                 <div>
                                   <p className="text-sm font-semibold text-gray-900">{row.employee.full_name}</p>
-                                  <p className="text-xs text-gray-400">{row.employee.employee_code} · {row.employee.department}</p>
+                                  <p className="text-xs text-gray-400">{row.employee.employee_code} - {row.employee.department}</p>
                                 </div>
                               </div>
                             </td>
@@ -632,14 +733,17 @@ export default function PayrollPage() {
                               <OverrideCell value={row.override_days_present} prefix="" onChange={v=>updatePayslip(row.employee.id,"override_days_present",Math.min(v,workingDays))}/>
                               <span className="text-xs text-gray-400">/{workingDays}</span>
                             </td>
-                            <td className="px-3 py-3 text-right text-sm font-mono text-gray-700">{fmtINR(row.gross_earned)}</td>
-                            <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{row.pf_employee>0?`-${fmtINR(row.pf_employee)}`:"—"}</td>
-                            <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{row.esic_employee>0?`-${fmtINR(row.esic_employee)}`:"—"}</td>
-                            <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{row.pt_amount>0?`-${fmtINR(row.pt_amount)}`:"—"}</td>
-                            <td className="px-3 py-3 text-right text-xs font-mono text-orange-500">{row.tds_amount>0?`-${fmtINR(row.tds_amount)}`:"—"}</td>
-                            <td className="px-3 py-3 text-right" onClick={e=>e.stopPropagation()}>
-                              <OverrideCell value={row.override_bonus} onChange={v=>updatePayslip(row.employee.id,"override_bonus",v)}/>
+                            <td className="px-3 py-3 text-right text-xs font-mono text-blue-600">{row.leave_days>0?row.leave_days:"-"}</td>
+                            <td className="px-3 py-3 text-right text-xs font-mono">
+                              {row.lop_days>0 ? (
+                                <span className="text-red-500">{row.lop_days - row.lop_days_waived}{row.lop_days_waived>0?<span className="text-emerald-500"> ({row.lop_days_waived}w)</span>:null}</span>
+                              ) : "-"}
                             </td>
+                            <td className="px-3 py-3 text-right text-sm font-mono text-gray-700">{fmtINR(row.gross_earned)}</td>
+                            <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{row.pf_employee>0?`-${fmtINR(row.pf_employee)}`:"-"}</td>
+                            <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{row.esic_employee>0?`-${fmtINR(row.esic_employee)}`:"-"}</td>
+                            <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{row.pt_amount>0?`-${fmtINR(row.pt_amount)}`:"-"}</td>
+                            <td className="px-3 py-3 text-right text-xs font-mono text-orange-500">{row.tds_amount>0?`-${fmtINR(row.tds_amount)}`:"-"}</td>
                             <td className="px-3 py-3 text-right text-sm font-mono font-bold text-indigo-700">{fmtINR(row.net_payable)}</td>
                             <td className="px-3 py-3 text-right" onClick={e=>e.stopPropagation()}>
                               <button onClick={()=>setPayslipModal(row)} className="p-1.5 hover:bg-indigo-50 rounded-lg transition-colors" title="View payslip">
@@ -650,7 +754,7 @@ export default function PayrollPage() {
 
                           {expandedRow===row.employee.id && (
                             <tr key={`${row.employee.id}-exp`} className="bg-indigo-50/40">
-                              <td colSpan={10} className="px-6 py-4">
+                              <td colSpan={11} className="px-6 py-4">
                                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 text-xs">
                                   <div>
                                     <p className="font-bold text-gray-500 uppercase tracking-wider mb-2">Earnings</p>
@@ -665,23 +769,22 @@ export default function PayrollPage() {
                                     ))}
                                   </div>
                                   <div>
-                                    <p className="font-bold text-gray-500 uppercase tracking-wider mb-2">Employer cost</p>
-                                    {[["PF ER 13%",row.pf_employer],["ESIC ER 3.25%",row.esic_employer]].filter(([,v])=>(v as number)>0).map(([l,v])=>(
-                                      <div key={l as string} className="flex justify-between py-0.5"><span className="text-gray-600">{l as string}</span><span className="font-mono text-blue-600">{fmtINR(v as number)}</span></div>
-                                    ))}
-                                    <div className="flex justify-between py-0.5 pt-1 border-t border-indigo-200 mt-1 font-semibold">
-                                      <span className="text-gray-700">Total CTC</span>
-                                      <span className="font-mono text-gray-900">{fmtINR(row.gross_earned+row.pf_employer+row.esic_employer)}</span>
-                                    </div>
+                                    <p className="font-bold text-gray-500 uppercase tracking-wider mb-2">LOP &amp; good-will</p>
+                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">Working days</span><span className="font-mono text-gray-800">{row.working_days}</span></div>
+                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">Present</span><span className="font-mono text-gray-800">{row.days_present}</span></div>
+                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">Approved leave</span><span className="font-mono text-blue-600">{row.leave_days}</span></div>
+                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">LOP days</span><span className="font-mono text-red-500">{row.lop_days}</span></div>
+                                    <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Waive (good-will)</span><OverrideCell value={row.override_lop_waived} prefix="" onChange={v=>updatePayslip(row.employee.id,"override_lop_waived",v)}/></div>
+                                    {row.lop_amount>0 && <div className="flex justify-between py-0.5"><span className="text-red-500">LOP deduction</span><span className="font-mono text-red-500">-{fmtINR(row.lop_amount)}</span></div>}
+                                    {row.goodwill_amount>0 && <div className="flex justify-between py-0.5"><span className="text-emerald-600">Good-will add-back</span><span className="font-mono text-emerald-600">+{fmtINR(row.goodwill_amount)}</span></div>}
                                   </div>
                                   <div>
-                                    <p className="font-bold text-gray-500 uppercase tracking-wider mb-2">Adjustments</p>
-                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">Extra allowance</span><OverrideCell value={row.override_other_allowance} onChange={v=>updatePayslip(row.employee.id,"override_other_allowance",v)}/></div>
-                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">Extra deduction</span><OverrideCell value={row.override_other_deductions} onChange={v=>updatePayslip(row.employee.id,"override_other_deductions",v)}/></div>
-                                    <div className="flex justify-between py-1 pt-2 border-t border-indigo-200 mt-1 font-bold">
-                                      <span className="text-indigo-700">Net payable</span>
-                                      <span className="font-mono text-indigo-700">{fmtINR(row.net_payable)}</span>
-                                    </div>
+                                    <p className="font-bold text-gray-500 uppercase tracking-wider mb-2">Adjustments &amp; employer</p>
+                                    <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Bonus</span><OverrideCell value={row.override_bonus} onChange={v=>updatePayslip(row.employee.id,"override_bonus",v)}/></div>
+                                    <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Extra allowance</span><OverrideCell value={row.override_other_allowance} onChange={v=>updatePayslip(row.employee.id,"override_other_allowance",v)}/></div>
+                                    <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Extra deduction</span><OverrideCell value={row.override_other_deductions} onChange={v=>updatePayslip(row.employee.id,"override_other_deductions",v)}/></div>
+                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">PF ER</span><span className="font-mono text-blue-600">{fmtINR(row.pf_employer)}</span></div>
+                                    <div className="flex justify-between py-1 pt-2 border-t border-indigo-200 mt-1 font-bold"><span className="text-indigo-700">Net payable</span><span className="font-mono text-indigo-700">{fmtINR(row.net_payable)}</span></div>
                                   </div>
                                 </div>
                               </td>
@@ -691,15 +794,15 @@ export default function PayrollPage() {
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr >
+                      <tr>
                         <td className="px-4 py-3 text-sm font-bold">{employees.length} employees</td>
-                        <td/>
+                        <td/><td/>
+                        <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{totalLop>0?`-${fmtINR(totalLop)}`:"-"}</td>
                         <td className="px-3 py-3 text-right text-sm font-mono font-bold">{fmtINR(totalGross)}</td>
                         <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{fmtINR(payslips.reduce((a,r)=>a+r.pf_employee,0))}</td>
                         <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{fmtINR(payslips.reduce((a,r)=>a+r.esic_employee,0))}</td>
                         <td className="px-3 py-3 text-right text-xs font-mono text-red-500">{fmtINR(payslips.reduce((a,r)=>a+r.pt_amount,0))}</td>
                         <td className="px-3 py-3 text-right text-xs font-mono text-orange-500">{fmtINR(payslips.reduce((a,r)=>a+r.tds_amount,0))}</td>
-                        <td className="px-3 py-3 text-right text-xs font-mono text-emerald-500">{fmtINR(payslips.reduce((a,r)=>a+r.bonus,0))}</td>
                         <td className="px-3 py-3 text-right text-sm font-mono font-bold text-indigo-500">{fmtINR(totalNet)}</td>
                         <td/>
                       </tr>
