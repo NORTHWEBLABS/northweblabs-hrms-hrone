@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
+import { captureAndEvaluate } from "@/lib/geo";
 import {
   Clock, Calendar, Wallet, Bell, CheckCircle2, AlertCircle, Loader2,
   LogOut, Sun, Moon, Cloud, X, UserPlus, Sparkles, ArrowRight,
@@ -282,15 +283,17 @@ export default function MePage() {
 
   const handleLogout = () => { document.cookie = "session_token=; path=/; max-age=0"; localStorage.clear(); router.push("/employee-login"); };
 
-  const handleCheckIn = async () => {
+const handleCheckIn = async () => {
     if (!emp) return;
+    // Fetch offices for geofencing
+    const { data: locs } = await sb.from("org_locations")
+      .select("id, name, latitude, longitude, geofence_radius_m").eq("org_id", user?.org_id || "");
+    const geo = await captureAndEvaluate((locs || []) as any);
     const { error: err } = await sb.from("attendance").insert({
-      employee_id: emp.id,
-      org_id: user?.org_id,
-      date: todayStr,
-      check_in: new Date().toISOString(),
-      status: "present",
-      source: "web",
+      employee_id: emp.id, org_id: user?.org_id, date: todayStr,
+      check_in: new Date().toISOString(), status: "present", source: "web",
+      latitude: geo.coords?.latitude ?? null, longitude: geo.coords?.longitude ?? null,
+      geo_flagged: geo.geo_flagged, distance_m: geo.distance_m,
     });
     if (!err) {
       setCheckedIn(true);

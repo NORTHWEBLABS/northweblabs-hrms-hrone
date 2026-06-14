@@ -6,7 +6,8 @@
 // Schema notes (verified against DB):
 //  - departments:  id, org_id, name, head_employee_id (FK→employees.id), vertical (text), created_at
 //  - verticals:    id, org_id, name, head_employee_id (NO FK), created_at
-//  - org_locations:id, org_id, name, type, address, city, state, pincode, is_headquarters, head_employee_id (NO FK), created_at
+//  - org_locations:id, org_id, name, type, address, city, state, pincode, is_headquarters, head_employee_id (NO FK),
+//                  latitude, longitude, geofence_radius_m, created_at
 //  - org chart from employees.reporting_manager_id → employees.id (self-FK, confirmed)
 //  - "head" is label-only: stored on the dept/vertical/location, NO write-back to the employee row.
 
@@ -36,6 +37,7 @@ interface OrgLocation {
   id: string; org_id: string; name: string; type: string;
   address: string | null; city: string | null; state: string | null; pincode: string | null;
   is_headquarters: boolean; head_employee_id: string | null; created_at: string;
+  latitude: number | null; longitude: number | null; geofence_radius_m: number | null;
 }
 
 type Tab = "departments" | "verticals" | "locations" | "chart" | "policies";
@@ -197,10 +199,23 @@ function LocationModal({ orgId, employees, editing, onSaved, onClose }: {
     name: editing?.name || "", type: editing?.type || "office",
     address: editing?.address || "", city: editing?.city || "", state: editing?.state || "", pincode: editing?.pincode || "",
     is_headquarters: editing?.is_headquarters || false, head_employee_id: editing?.head_employee_id || "",
+    latitude: editing?.latitude?.toString() || "", longitude: editing?.longitude?.toString() || "",
+    geofence_radius_m: editing?.geofence_radius_m?.toString() || "200",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [locating, setLocating] = useState(false);
   const set = (k: string, v: any) => setForm(p => ({ ...p, [k]: v }));
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) { setError("Geolocation not supported in this browser"); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      p => { set("latitude", p.coords.latitude.toFixed(6)); set("longitude", p.coords.longitude.toFixed(6)); setLocating(false); },
+      () => { setError("Couldn't get your location — check browser permissions"); setLocating(false); },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
 
   const save = async () => {
     if (!form.name.trim()) { setError("Enter a location name"); return; }
@@ -210,6 +225,9 @@ function LocationModal({ orgId, employees, editing, onSaved, onClose }: {
       address: form.address.trim() || null, city: form.city.trim() || null,
       state: form.state.trim() || null, pincode: form.pincode.trim() || null,
       is_headquarters: form.is_headquarters, head_employee_id: form.head_employee_id || null,
+      latitude: form.latitude ? Number(form.latitude) : null,
+      longitude: form.longitude ? Number(form.longitude) : null,
+      geofence_radius_m: form.geofence_radius_m ? Number(form.geofence_radius_m) : 200,
     };
     const q = editing
       ? sb.from("org_locations").update(payload).eq("id", editing.id).select().single()
@@ -248,6 +266,18 @@ function LocationModal({ orgId, employees, editing, onSaved, onClose }: {
           <Field label="Location head">
             <HeadSelect value={form.head_employee_id} onChange={v => set("head_employee_id", v)} employees={employees} />
           </Field>
+
+          {/* Geo-fencing for attendance check-in */}
+          <div className="grid grid-cols-3 gap-4">
+            <Field label="Latitude" hint="For geo check-in"><input className={inputCls} placeholder="18.5204" value={form.latitude} onChange={e => set("latitude", e.target.value)} /></Field>
+            <Field label="Longitude"><input className={inputCls} placeholder="73.8567" value={form.longitude} onChange={e => set("longitude", e.target.value)} /></Field>
+            <Field label="Radius (m)" hint="Geofence"><input className={inputCls} type="number" value={form.geofence_radius_m} onChange={e => set("geofence_radius_m", e.target.value)} /></Field>
+          </div>
+          <button type="button" onClick={useMyLocation} disabled={locating}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 disabled:opacity-50 w-fit">
+            {locating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}Use my current location
+          </button>
+
           <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer ${form.is_headquarters ? "bg-indigo-50 border-indigo-200" : "bg-gray-50 border-gray-200"}`}>
             <input type="checkbox" checked={form.is_headquarters} onChange={e => set("is_headquarters", e.target.checked)} className="accent-indigo-600 w-4 h-4" />
             <div className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5 text-amber-500" /><span className="text-xs font-semibold text-gray-800">Headquarters</span></div>
@@ -485,7 +515,7 @@ export default function OrgStructurePage() {
                 <EmptyState icon={MapPin} title="No locations yet" cta="Create location" onCta={() => setLocModal({ open: true, editing: null })} />
               ) : (
                 <table className="w-full">
-                  <thead><tr className="bg-gray-50 border-b border-gray-200">{["Location", "Type", "City", "Head", ""].map(h => <th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}</tr></thead>
+                  <thead><tr className="bg-gray-50 border-b border-gray-200">{["Location", "Type", "City", "Geo", "Head", ""].map(h => <th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>)}</tr></thead>
                   <tbody className="divide-y divide-gray-100">
                     {locations.map(l => {
                       const meta = locTypeMeta(l.type); const Icon = meta.icon;
@@ -494,6 +524,7 @@ export default function OrgStructurePage() {
                           <td className="px-4 py-3"><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><Icon className="w-4 h-4" /></div><div className="flex items-center gap-2"><span className="text-sm font-semibold text-gray-900">{l.name}</span>{l.is_headquarters && <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 flex items-center gap-1"><Star className="w-3 h-3" />HQ</span>}</div></div></td>
                           <td className="px-4 py-3 text-sm text-gray-500">{meta.label}</td>
                           <td className="px-4 py-3 text-sm text-gray-500">{l.city || "—"}</td>
+                          <td className="px-4 py-3 text-sm">{l.latitude != null && l.longitude != null ? <span className="text-emerald-600 flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{l.geofence_radius_m ?? 200}m</span> : <span className="text-gray-300">Not set</span>}</td>
                           <td className="px-4 py-3 text-sm text-gray-500">{empName(l.head_employee_id)}</td>
                           <td className="px-4 py-3"><RowActions onEdit={() => setLocModal({ open: true, editing: l })} confirming={confirmDel?.kind === "locations" && confirmDel.id === l.id} onAskDelete={() => setConfirmDel({ kind: "locations", id: l.id })} onCancelDelete={() => setConfirmDel(null)} onConfirmDelete={doDelete} /></td>
                         </tr>
