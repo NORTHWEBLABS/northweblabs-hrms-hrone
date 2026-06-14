@@ -555,19 +555,47 @@ function EmployeeDetailDrawer({ employee, open, onClose, onUpdate, employees }: 
   const handleApproval = async (status: "approved" | "rejected") => {
     setSaving(true);
     const userEmail = localStorage.getItem("userEmail") || "";
-    const { data: approver } = await sb.from("users").select("id").eq("email", userEmail).maybeSingle();
+    const orgName = localStorage.getItem("activeOrgName") || "Your company";
+    const { data: approver } = await sb.from("users").select("id, full_name").eq("email", userEmail).maybeSingle();
     const { error } = await sb.from("employees").update({
       approval_status: status, approved_by: approver?.id || null, approved_at: new Date().toISOString(),
     }).eq("id", employee.id);
     if (!error) {
       onUpdate({ ...employee, approval_status: status });
+      // Notify employee via DB notification
       try {
-        await sb.from("notifications").insert({
-          org_id: employee.org_id, type: `onboarding_${status}`,
-          title: `Onboarding ${status}`, message: `${employee.full_name}'s onboarding has been ${status}.`,
-          employee_id: employee.id,
-        });
+        const { data: empUser } = await sb.from("users").select("id").eq("email", employee.email).eq("org_id", employee.org_id).maybeSingle();
+        if (empUser) {
+          await sb.from("notifications").insert({
+            org_id: employee.org_id, user_id: empUser.id,
+            type: `onboarding_${status}`, title: status === "approved" ? "Welcome aboard!" : "Onboarding update",
+            body: status === "approved"
+              ? `Congratulations! Your onboarding at ${orgName} has been approved. You can now login and access your dashboard.`
+              : `Your onboarding at ${orgName} was not approved. Please contact HR for details.`,
+            message: `${employee.full_name}'s onboarding has been ${status}.`,
+            link: "/me",
+          });
+        }
       } catch {}
+      // Send welcome email on approval
+      if (status === "approved" && employee.email) {
+        try {
+          const joinDate = employee.date_of_joining ? new Date(employee.date_of_joining).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "TBD";
+          await fetch("/api/auth/send-welcome", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: employee.email,
+              employeeName: employee.full_name,
+              orgName,
+              designation: employee.designation || "Team Member",
+              department: employee.department || "General",
+              dateOfJoining: joinDate,
+              employeeCode: employee.employee_code || "",
+              approvedBy: approver?.full_name || "Admin",
+            }),
+          });
+        } catch {}
+      }
     }
     setSaving(false); setConfirming(null);
   };
