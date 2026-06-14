@@ -4,9 +4,9 @@ import { NextResponse, type NextRequest } from "next/server";
 // Pages that require a valid session
 const PROTECTED = [
   "/dashboard", "/organizations", "/employees", "/attendance", "/payroll",
-  "/leaves", "/approvals", "/offboarding", "/letters", "/store", "/cashflow",
+  "/loans", "/leaves", "/approvals", "/offboarding", "/letters", "/store", "/cashflow",
   "/cash-register", "/expenses", "/settings", "/documents", "/compliance",
-  "/reports", "/me", "/org-structure",
+  "/reports", "/me", "/my-attendance", "/org-structure",
 ];
 
 // Everything except the super-admin platform page
@@ -27,10 +27,10 @@ const ACCESS: Record<string, string[]> = {
   super_admin: ["/organizations"],
   owner: FULL_APP,
   admin: FULL_APP, // billing distinction handled inside /settings UI, not here
-  hr: ["/dashboard", "/employees", "/attendance", "/payroll", "/leaves",
-       "/approvals", "/documents", "/compliance", "/reports", "/me", "/org-structure"],
-  manager: ["/dashboard", "/approvals", "/attendance", "/leaves", "/me"],
-  employee: ["/me", "/attendance", "/leaves", "/approvals"],
+  hr: ["/dashboard", "/employees", "/attendance", "/payroll", "/loans", "/leaves",
+       "/approvals", "/documents", "/compliance", "/reports", "/me", "/my-attendance", "/org-structure"],
+  manager: ["/dashboard", "/approvals", "/attendance", "/leaves", "/me", "/my-attendance"],
+  employee: ["/me", "/my-attendance", "/attendance", "/leaves", "/approvals"],
 };
 
 // Boundary-aware match: "/me" matches /me and /me/* but NOT /menu

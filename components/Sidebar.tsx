@@ -30,7 +30,8 @@ const NAV_GROUPS: NavGroup[] = [
   ]},
   { label: "HR", roles: ["super_admin","owner","admin","hr","manager"], items: [
     { label: "Attendance", icon: CalendarCheck, path: "/attendance" },
-    { label: "Payroll", icon: Wallet, path: "/payroll", roles: ["super_admin","owner","admin","hr"] },
+    { label: "Payroll", icon: Wallet, path: "/payroll", roles: ["super_admin", "owner", "admin", "hr"] },
+    { label: "Loans & advances", icon: Banknote, path: "/loans", roles: ["super_admin","owner","admin","hr"] },
     { label: "Leaves", icon: CalendarDays, path: "/leaves" },
     { label: "Offboarding", icon: UserMinus, path: "/offboarding", roles: ["super_admin","owner","admin","hr"] },
     { label: "Approvals", icon: ClipboardCheck, path: "/approvals" },

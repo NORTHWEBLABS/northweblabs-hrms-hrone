@@ -64,11 +64,16 @@ interface PayslipRow {
   lop_amount: number;
   goodwill_amount: number;
   goodwill_note: string | null;
+  loan_recovery: number;          // total deducted this month across all active loans
+  loan_installment: number;       // sum of suggested installments
+  loan_outstanding: number;       // sum of outstanding balances
+  loan_lines: { id: string; installment: number; outstanding: number }[]; // per-loan for ledger split
   override_bonus: number;
   override_other_deductions: number;
   override_other_allowance: number;
   override_days_present: number;
   override_lop_waived: number;
+  override_loan_recovery: number;
 }
 
 interface PayrollRun {
@@ -108,7 +113,9 @@ const TDS_NEW_REGIME = (annualGross: number): number => {
 function calcPayslip(
   emp: Employee, daysPresent: number, leaveDays: number, workingDays: number,
   calendarDays: number, month: number, bonus: number, otherDed: number,
-  otherAllow: number, lopWaivedDays: number
+  otherAllow: number, lopWaivedDays: number,
+  loanRecovery: number, loanInstallment: number, loanOutstanding: number,
+  loanLines: { id: string; installment: number; outstanding: number }[]
 ): PayslipRow {
   const basicFull = emp.basic_salary;
   const hraFull = emp.hra;
@@ -140,7 +147,7 @@ function calcPayslip(
   const esicEmployer = emp.esic_applicable && grossEarned <= 21000 ? Math.round(grossEarned * 0.0325) : 0;
   const ptAmount = emp.pt_applicable ? PT_MAHARASHTRA(grossEarned, month) : 0;
   const tdsAmount = TDS_NEW_REGIME(grossEarned * 12);
-  const totalDeductions = pfEmployee + esicEmployee + ptAmount + tdsAmount + otherDed;
+  const totalDeductions = pfEmployee + esicEmployee + ptAmount + tdsAmount + otherDed + loanRecovery;
 
   return {
     employee: emp,
@@ -157,9 +164,12 @@ function calcPayslip(
     lop_days: rawLopDays, lop_days_waived: waived, lop_amount: lopAmount,
     goodwill_amount: goodwillAmount,
     goodwill_note: waived > 0 ? `${waived} of ${rawLopDays} LOP day${rawLopDays > 1 ? "s" : ""} waived (good-will)` : null,
+    loan_recovery: loanRecovery, loan_installment: loanInstallment,
+    loan_outstanding: loanOutstanding, loan_lines: loanLines,
     override_bonus: bonus, override_other_deductions: otherDed,
     override_other_allowance: otherAllow, override_days_present: daysPresent,
     override_lop_waived: lopWaivedDays,
+    override_loan_recovery: loanRecovery,
   };
 }
 
@@ -276,7 +286,8 @@ function PayslipModal({ row, month, year, orgName, onClose }: { row:PayslipRow; 
           </div>
           <Section title="Deductions" variant="ded" rows={[
             ["PF (Employee 12%)", row.pf_employee], ["ESIC (Employee 0.75%)", row.esic_employee],
-            ["Professional Tax", row.pt_amount], ["TDS", row.tds_amount], ["Other deductions", row.other_deductions],
+            ["Professional Tax", row.pt_amount], ["TDS", row.tds_amount],
+            ["Loan / advance recovery", row.loan_recovery], ["Other deductions", row.other_deductions],
           ]}/>
           <div className="flex items-center justify-between px-5 py-4 bg-indigo-50 border border-indigo-200 rounded-xl">
             <div>
@@ -385,7 +396,7 @@ export default function PayrollPage() {
       const monthStart = `${selectedYear}-${String(selectedMonth).padStart(2,"0")}-01`;
       const monthEnd = `${selectedYear}-${String(selectedMonth).padStart(2,"0")}-${String(getCalendarDays(selectedYear, selectedMonth)).padStart(2,"0")}`;
 
-      const [{ data: emps }, { data: run }, { data: att }, { data: past }, { data: lvs }] = await Promise.all([
+      const [{ data: emps }, { data: run }, { data: att }, { data: past }, { data: lvs }, { data: lns }] = await Promise.all([
         supabase.from("employees").select("id,full_name,employee_code,department,designation,basic_salary,hra,special_allowance,other_allowance,gross_salary,pf_applicable,esic_applicable,pt_applicable,salary_type,bank_name,bank_account,bank_ifsc")
           .eq("org_id", oid).eq("status","active").order("full_name"),
         supabase.from("payroll_runs").select("*").eq("org_id", oid).eq("month", selectedMonth).eq("year", selectedYear).maybeSingle(),
@@ -393,6 +404,8 @@ export default function PayrollPage() {
         supabase.from("payroll_runs").select("*").eq("org_id", oid).order("year",{ascending:false}).order("month",{ascending:false}).limit(12),
         supabase.from("leaves").select("employee_id,from_date,to_date,days,status").eq("org_id", oid).eq("status","approved")
           .lte("from_date", monthEnd).gte("to_date", monthStart),
+        supabase.from("loans").select("id,employee_id,installment,total_recoverable,recovered,start_month,start_year,status")
+          .eq("org_id", oid).eq("status","active"),
       ]);
 
       // Present-equivalent days + explicit absent count
@@ -414,6 +427,16 @@ export default function PayrollPage() {
         leaveMap[l.employee_id] = (leaveMap[l.employee_id] ?? 0) + d;
       });
 
+      // Active loans per employee whose recovery has started and still has balance
+      const loanMap: Record<string, { id: string; installment: number; outstanding: number }[]> = {};
+      (lns??[]).forEach((l:any) => {
+        const started = (l.start_year < selectedYear) || (l.start_year===selectedYear && l.start_month <= selectedMonth);
+        const outstanding = (l.total_recoverable||0) - (l.recovered||0);
+        if (started && outstanding > 0) {
+          (loanMap[l.employee_id] ||= []).push({ id: l.id, installment: l.installment||0, outstanding });
+        }
+      });
+
       setEmployees((emps??[]) as Employee[]);
       setExistingRun(run as PayrollRun|null);
       setPastRuns((past??[]) as PayrollRun[]);
@@ -424,12 +447,17 @@ export default function PayrollPage() {
         const present = presenceMap[emp.id] ?? 0;
         const leave = leaveMap[emp.id] ?? 0;
         const absent = absentMap[emp.id] ?? 0;
-        // If unmarkedPresent: paid days = working - explicit absent - (leave counted separately).
-        // present-equiv used by calc = working - absent - leave  (so unmarked days count as present)
         const effectivePresent = unmarkedPresent
           ? Math.max(0, wd - absent - leave)
           : present;
-        return calcPayslip(emp as Employee, effectivePresent, leave, wd, cd, selectedMonth, 0, 0, 0, 0);
+        const lines = loanMap[emp.id] || [];
+        // Suggested recovery per loan = min(installment, outstanding); total summed across loans
+        const perLoan = lines.map(l => ({ ...l, suggested: Math.min(l.installment, l.outstanding) }));
+        const loanRecovery = perLoan.reduce((a,l)=>a+l.suggested,0);
+        const loanInstallment = lines.reduce((a,l)=>a+l.installment,0);
+        const loanOutstanding = lines.reduce((a,l)=>a+l.outstanding,0);
+        return calcPayslip(emp as Employee, effectivePresent, leave, wd, cd, selectedMonth, 0, 0, 0, 0,
+          loanRecovery, loanInstallment, loanOutstanding, lines);
       }));
     } catch (err) {
       console.error(err);
@@ -454,7 +482,9 @@ export default function PayrollPage() {
       const od = field==="override_other_deductions" ? value : row.override_other_deductions;
       const oa = field==="override_other_allowance" ? value : row.override_other_allowance;
       const wv = field==="override_lop_waived" ? value : row.override_lop_waived;
-      return calcPayslip(row.employee, dp, row.leave_days, workingDays, calendarDays, selectedMonth, bn, od, oa, wv);
+      const lr = field==="override_loan_recovery" ? Math.min(value, row.loan_outstanding) : row.override_loan_recovery;
+      return calcPayslip(row.employee, dp, row.leave_days, workingDays, calendarDays, selectedMonth, bn, od, oa, wv,
+        lr, row.loan_installment, row.loan_outstanding, row.loan_lines);
     }));
   };
 
@@ -497,8 +527,42 @@ export default function PayrollPage() {
         pt_amount:r.pt_amount, tds_amount:r.tds_amount,
         other_deductions:r.other_deductions, total_deductions:r.total_deductions,
         net_payable:r.net_payable, pf_employer:r.pf_employer, esic_employer:r.esic_employer,
+        loan_recovery:r.loan_recovery,
       })));
       if (se) throw se;
+
+      // ── Loan recovery ledger ──────────────────────────────────────────────
+      // For each employee, split this month's total recovery across their active loans
+      // proportionally to each loan's suggested amount, then upsert ledger + recompute balance.
+      for (const r of payslips) {
+        if (r.loan_recovery <= 0 || r.loan_lines.length === 0) continue;
+        const suggestedTotal = r.loan_lines.reduce((a,l)=>a+Math.min(l.installment,l.outstanding),0);
+        let remaining = r.loan_recovery;
+        for (let i = 0; i < r.loan_lines.length; i++) {
+          const l = r.loan_lines[i];
+          const suggested = Math.min(l.installment, l.outstanding);
+          // proportional split; last loan absorbs any rounding remainder
+          let portion = i === r.loan_lines.length - 1
+            ? remaining
+            : (suggestedTotal > 0 ? Math.round(r.loan_recovery * (suggested / suggestedTotal)) : 0);
+          portion = Math.min(portion, l.outstanding, remaining);
+          remaining -= portion;
+          if (portion <= 0) continue;
+          const balanceAfter = Math.max(0, l.outstanding - portion);
+          await supabase.from("loan_repayments").upsert({
+            loan_id: l.id, org_id: oid, employee_id: r.employee.id,
+            payroll_run_id: runId, month: selectedMonth, year: selectedYear,
+            amount: portion, balance_after: balanceAfter,
+          }, { onConflict: "loan_id,month,year" });
+          // Recompute recovered from full ledger (correct on re-process)
+          const { data: led } = await supabase.from("loan_repayments").select("amount").eq("loan_id", l.id);
+          const recovered = (led||[]).reduce((a:number,x:any)=>a+(Number(x.amount)||0),0);
+          const { data: loanRow } = await supabase.from("loans").select("total_recoverable").eq("id", l.id).maybeSingle();
+          const upd: any = { recovered };
+          if (loanRow && recovered >= (loanRow.total_recoverable||0)) upd.status = "closed";
+          await supabase.from("loans").update(upd).eq("id", l.id);
+        }
+      }
 
       setToast({message:`Payroll processed for ${payslips.length} employees`,type:"success"});
       fetchData();
@@ -783,6 +847,7 @@ export default function PayrollPage() {
                                     <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Bonus</span><OverrideCell value={row.override_bonus} onChange={v=>updatePayslip(row.employee.id,"override_bonus",v)}/></div>
                                     <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Extra allowance</span><OverrideCell value={row.override_other_allowance} onChange={v=>updatePayslip(row.employee.id,"override_other_allowance",v)}/></div>
                                     <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Extra deduction</span><OverrideCell value={row.override_other_deductions} onChange={v=>updatePayslip(row.employee.id,"override_other_deductions",v)}/></div>
+                                    {row.loan_outstanding > 0 && <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Loan recovery <span className="text-xs text-gray-400">(out {fmtINR(row.loan_outstanding)})</span></span><OverrideCell value={row.override_loan_recovery} onChange={v=>updatePayslip(row.employee.id,"override_loan_recovery",v)}/></div>}
                                     <div className="flex justify-between py-0.5"><span className="text-gray-600">PF ER</span><span className="font-mono text-blue-600">{fmtINR(row.pf_employer)}</span></div>
                                     <div className="flex justify-between py-1 pt-2 border-t border-indigo-200 mt-1 font-bold"><span className="text-indigo-700">Net payable</span><span className="font-mono text-indigo-700">{fmtINR(row.net_payable)}</span></div>
                                   </div>
