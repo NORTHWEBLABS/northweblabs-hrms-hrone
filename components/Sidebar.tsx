@@ -12,7 +12,7 @@ import {
   Receipt, ShoppingBag, TrendingUp, ChevronDown, ChevronLeft,
   ChevronRight, Sparkles, LogOut, Menu, X, Layers,
   Banknote, FolderOpen, ChevronUp, MessageCircle, UserMinus,
-  Check, Plus, FileText, ClipboardCheck, User,
+  Check, Plus, FileText, ClipboardCheck, User, Network,
 } from "lucide-react";
 
 interface NavItem { label: string; icon: any; path: string; locked?: boolean; roles?: string[]; }
@@ -25,6 +25,7 @@ const NAV_GROUPS: NavGroup[] = [
     { label: "Organizations", icon: Building2, path: "/organizations", roles: ["super_admin"] },
     { label: "My Dashboard", icon: User, path: "/me" },
     { label: "Employees", icon: Users, path: "/employees", roles: ["super_admin","owner","admin","hr"] },
+    { label: "Org structure", icon: Network, path: "/org-structure", roles: ["owner","admin","hr"] },
   ]},
   { label: "HR", roles: ["super_admin","owner","admin","hr","manager"], items: [
     { label: "Attendance", icon: CalendarCheck, path: "/attendance" },

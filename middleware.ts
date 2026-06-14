@@ -6,7 +6,7 @@ const PROTECTED = [
   "/dashboard", "/organizations", "/employees", "/attendance", "/payroll",
   "/leaves", "/approvals", "/offboarding", "/letters", "/store", "/cashflow",
   "/cash-register", "/expenses", "/settings", "/documents", "/compliance",
-  "/reports", "/me",
+  "/reports", "/me", "/org-structure",
 ];
 
 // Everything except the super-admin platform page
@@ -28,7 +28,7 @@ const ACCESS: Record<string, string[]> = {
   owner: FULL_APP,
   admin: FULL_APP, // billing distinction handled inside /settings UI, not here
   hr: ["/dashboard", "/employees", "/attendance", "/payroll", "/leaves",
-       "/approvals", "/documents", "/compliance", "/reports", "/me"],
+       "/approvals", "/documents", "/compliance", "/reports", "/me", "/org-structure"],
   manager: ["/dashboard", "/approvals", "/attendance", "/leaves", "/me"],
   employee: ["/me", "/attendance", "/leaves", "/approvals"],
 };
