@@ -265,30 +265,35 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
       } catch {}
 
       // ── NOTIFICATIONS + EMAILS ──
-      // Find approver: HR head first → owner/admin fallback
-      let approverId = "", approverName = "", approverEmail = "";
-      const { data: hrUsers } = await sb.from("users").select("id, full_name, email").eq("org_id", oid).eq("role", "hr").limit(1);
-      if (hrUsers?.length) { approverId = hrUsers[0].id; approverName = hrUsers[0].full_name; approverEmail = hrUsers[0].email; }
+      // Find approver for IN-APP notification: HR head first → owner/admin fallback
+      let approverId = "";
+      const { data: hrUsers } = await sb.from("users").select("id").eq("org_id", oid).eq("role", "hr").limit(1);
+      if (hrUsers?.length) { approverId = hrUsers[0].id; }
       if (!approverId) {
-        const { data: ow } = await sb.from("users").select("id, full_name, email").eq("org_id", oid).in("role", ["owner","admin"]).limit(1);
-        if (ow?.length) { approverId = ow[0].id; approverName = ow[0].full_name; approverEmail = ow[0].email; }
+        const { data: ow } = await sb.from("users").select("id").eq("org_id", oid).in("role", ["owner","admin"]).limit(1);
+        if (ow?.length) { approverId = ow[0].id; }
       }
       // In-app notification to approver
       if (approverId) {
         try { await sb.from("notifications").insert({ org_id: oid, user_id: approverId, type: "employee_added", title: "New employee pending approval", body: `${fullName} (${form.designation}, ${deptName || "—"}) needs your approval.`, link: "/employees" }); } catch {}
       }
-      // Email to employee: onboarding done, pending approval
+
+      // Onboarding emails: ONE call — route resolves approvers (HR → owner/admin → org.owner_email)
       try {
         if (form.email) {
-          await fetch("/api/auth/send-onboarding-status", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ to: form.email, employeeName: fullName, orgName: localStorage.getItem("activeOrgName") || "", designation: form.designation, department: deptName, dateOfJoining: form.date_of_joining, employeeCode: code, type: "employee_pending" }) });
-        }
-      } catch {}
-      // Email to approver: please review and approve
-      try {
-        if (approverEmail) {
-          await fetch("/api/auth/send-onboarding-status", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ to: approverEmail, employeeName: fullName, approverName, orgName: localStorage.getItem("activeOrgName") || "", designation: form.designation, department: deptName, dateOfJoining: form.date_of_joining, employeeCode: code, type: "admin_approve", orgId: oid }) });
+          await fetch("/api/auth/send-onboarding-status", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              employeeEmail: form.email,
+              employeeName: fullName,
+              orgId: oid,
+              orgName: localStorage.getItem("activeOrgName") || "",
+              designation: form.designation,
+              department: deptName,
+              dateOfJoining: form.date_of_joining,
+              employeeCode: code,
+            }),
+          });
         }
       } catch {}
 

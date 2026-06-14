@@ -1,19 +1,22 @@
 // Route: app/api/auth/send-onboarding-status/route.ts
-// Sends TWO emails when an employee completes onboarding:
+// On employee onboarding: sends TWO emails in one call.
 //   1. To employee  → "Onboarding submitted, pending approval" (amber)
-//   2. To admin/HR   → "Action required: approve this employee" (green, link to /employees)
+//   2. To approver(s) → "Action required: approve" (green, link to /employees)
+// Approver lookup: HR → owner/admin → organizations.owner_email fallback.
 import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
 export async function POST(request: NextRequest) {
   try {
     const {
       employeeEmail,
       employeeName,
+      orgId,
       orgName,
       designation,
       department,
       dateOfJoining,
-      adminEmails, // string OR string[] — who should approve
+      employeeCode,
     } = await request.json();
 
     if (!employeeEmail || !employeeName || !orgName) {
@@ -23,19 +26,48 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const approveUrl = `${request.nextUrl.origin}/employees`;
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { get: (n) => request.cookies.get(n)?.value, set: () => {}, remove: () => {} } }
+    );
 
+    // ── Resolve approver emails: HR → owner/admin → org.owner_email ──────────
+    let approverEmails: string[] = [];
+    if (orgId) {
+      const { data: hr } = await supabase
+        .from("users").select("email").eq("org_id", orgId).eq("role", "hr");
+      approverEmails = (hr || []).map((u: any) => u.email).filter(Boolean);
+
+      if (approverEmails.length === 0) {
+        const { data: oa } = await supabase
+          .from("users").select("email").eq("org_id", orgId).in("role", ["owner", "admin"]);
+        approverEmails = (oa || []).map((u: any) => u.email).filter(Boolean);
+      }
+
+      if (approverEmails.length === 0) {
+        const { data: org } = await supabase
+          .from("organizations").select("owner_email").eq("id", orgId).maybeSingle();
+        if (org?.owner_email) approverEmails = [org.owner_email];
+      }
+    }
+    // De-dup + drop the employee's own address (avoid self-notify if same person)
+    approverEmails = [...new Set(approverEmails)].filter(
+      (e) => e.toLowerCase() !== String(employeeEmail).toLowerCase()
+    );
+
+    const approveUrl = `${request.nextUrl.origin}/employees`;
     const key = process.env.RESEND_API_KEY;
     const fromEmail = process.env.RESEND_FROM_EMAIL || "hello@northweblabs.com";
 
-    // Normalise admin recipients
-    const admins: string[] = Array.isArray(adminEmails)
-      ? adminEmails.filter(Boolean)
-      : adminEmails
-      ? [adminEmails]
-      : [];
+    // Format DOJ if it's an ISO date
+    let doj = dateOfJoining;
+    if (dateOfJoining && /^\d{4}-\d{2}-\d{2}/.test(dateOfJoining)) {
+      doj = new Date(dateOfJoining).toLocaleDateString("en-IN", {
+        day: "numeric", month: "long", year: "numeric",
+      });
+    }
 
-    // Small helper: a detail row, only rendered if value present
     const detailRow = (label: string, value?: string) =>
       value
         ? `<tr>
@@ -47,12 +79,13 @@ export async function POST(request: NextRequest) {
     const detailsTable = `
       <table style="width:100%;border-collapse:collapse">
         ${detailRow("Employee", employeeName)}
+        ${detailRow("Employee code", employeeCode)}
         ${detailRow("Designation", designation)}
         ${detailRow("Department", department)}
-        ${detailRow("Date of Joining", dateOfJoining)}
+        ${detailRow("Date of Joining", doj)}
       </table>`;
 
-    // ── Email 1: to employee (amber, pending) ──────────────────────────────
+    // ── Email 1: employee (amber, pending) ──────────────────────────────────
     const employeeHtml = `
       <div style="font-family:'Inter',-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:40px 32px">
         <div style="text-align:center;margin-bottom:32px">
@@ -85,7 +118,7 @@ export async function POST(request: NextRequest) {
         <p style="font-size:11px;color:#CBD5E1;text-align:center;margin:0">NorthWebLabs HRMS Platform</p>
       </div>`;
 
-    // ── Email 2: to admin / HR (green, action required) ────────────────────
+    // ── Email 2: approver(s) (green, action required) ───────────────────────
     const adminHtml = `
       <div style="font-family:'Inter',-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:40px 32px">
         <div style="text-align:center;margin-bottom:32px">
@@ -122,11 +155,9 @@ export async function POST(request: NextRequest) {
     // DEV mode — no key
     if (!key) {
       console.log("[onboarding-status] DEV MODE — no RESEND_API_KEY.", {
-        employee: employeeEmail,
-        admins,
-        approveUrl,
+        employee: employeeEmail, approvers: approverEmails, approveUrl,
       });
-      return NextResponse.json({ success: true, dev: true, approveUrl, admins });
+      return NextResponse.json({ success: true, dev: true, approveUrl, approvers: approverEmails });
     }
 
     const send = (to: string[], subject: string, html: string) =>
@@ -136,8 +167,8 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({ from: `NorthWebLabs <${fromEmail}>`, to, subject, html }),
       });
 
-    // Send employee email
     const results: Record<string, boolean> = {};
+
     const empRes = await send(
       [employeeEmail],
       `Onboarding submitted — pending approval at ${orgName}`,
@@ -146,21 +177,20 @@ export async function POST(request: NextRequest) {
     results.employee = empRes.ok;
     if (!empRes.ok) console.error("[onboarding-status] employee email failed:", await empRes.text());
 
-    // Send admin email (only if we have recipients)
-    if (admins.length > 0) {
+    if (approverEmails.length > 0) {
       const adminRes = await send(
-        admins,
+        approverEmails,
         `Action required: approve ${employeeName}'s onboarding (${orgName})`,
         adminHtml
       );
       results.admin = adminRes.ok;
       if (!adminRes.ok) console.error("[onboarding-status] admin email failed:", await adminRes.text());
     } else {
-      console.warn("[onboarding-status] No admin recipients — skipped approval email.");
+      console.warn("[onboarding-status] No approver recipients found for org:", orgId);
       results.admin = false;
     }
 
-    return NextResponse.json({ success: true, results, approveUrl });
+    return NextResponse.json({ success: true, results, approvers: approverEmails, approveUrl });
   } catch (err: any) {
     console.error("[onboarding-status]", err.message);
     return NextResponse.json({ error: "Failed to send onboarding emails" }, { status: 500 });
