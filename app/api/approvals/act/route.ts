@@ -107,17 +107,21 @@ export async function POST(req: NextRequest) {
           if (!employeeId) { warnings.push("No employee resolved — attendance not written."); break; }
           const date = p.date;
           if (!date) { warnings.push("No date in payload — attendance not written."); break; }
-          // Upsert attendance for (employee, date)
           const { data: existing } = await sb.from("attendance")
             .select("id").eq("employee_id", employeeId).eq("date", date).maybeSingle();
           const row: any = {
             org_id: request.org_id, employee_id: employeeId, date,
             check_in: p.check_in || null, check_out: p.check_out || null,
-            status: "present", source: "regularisation",
+            status: "present", source: "manual",
             notes: p.reason || request.description || "Regularised via approval",
           };
-          if (existing?.id) await sb.from("attendance").update(row).eq("id", existing.id);
-          else await sb.from("attendance").insert(row);
+          if (existing?.id) {
+            const { error: aErr } = await sb.from("attendance").update(row).eq("id", existing.id);
+            if (aErr) warnings.push(`Attendance update failed: ${aErr.message}`);
+          } else {
+            const { error: aErr } = await sb.from("attendance").insert(row);
+            if (aErr) warnings.push(`Attendance insert failed: ${aErr.message}`);
+          }
           break;
         }
 
@@ -129,11 +133,16 @@ export async function POST(req: NextRequest) {
             .select("id").eq("employee_id", employeeId).eq("date", date).maybeSingle();
           const row: any = {
             org_id: request.org_id, employee_id: employeeId, date,
-            status: "wfh", source: "regularisation",
+            status: "wfh", source: "manual",
             notes: p.reason || request.description || "Work from home",
           };
-          if (existing?.id) await sb.from("attendance").update(row).eq("id", existing.id);
-          else await sb.from("attendance").insert(row);
+          if (existing?.id) {
+            const { error: aErr } = await sb.from("attendance").update(row).eq("id", existing.id);
+            if (aErr) warnings.push(`Attendance update failed: ${aErr.message}`);
+          } else {
+            const { error: aErr } = await sb.from("attendance").insert(row);
+            if (aErr) warnings.push(`Attendance insert failed: ${aErr.message}`);
+          }
           break;
         }
 
