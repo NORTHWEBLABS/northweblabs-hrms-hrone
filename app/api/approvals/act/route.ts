@@ -88,8 +88,10 @@ export async function POST(req: NextRequest) {
           if (lErr) warnings.push(`Leave record insert failed: ${lErr.message}`);
           // Decrement balance (warn but allow)
           const yr = yearNow();
-          const { data: bal } = await sb.from("leave_balances")
-            .select("id, total, used").eq("employee_id", employeeId).eq("leave_type", leaveType).eq("year", yr).maybeSingle();
+          const { data: balRows } = await sb.from("leave_balances")
+            .select("id, total, used, leave_type").eq("employee_id", employeeId).eq("year", yr);
+          const norm = (s: string) => (s || "").trim().toLowerCase();
+          const bal = (balRows || []).find((b: any) => norm(b.leave_type) === norm(leaveType)) || null;
           if (!bal) {
             warnings.push(`No ${leaveType} balance row for ${yr} — approved without ledger update.`);
           } else {
@@ -139,8 +141,10 @@ export async function POST(req: NextRequest) {
           const credit = Number(p.credit_days) || 1;
           const leaveType = p.leave_type || "Comp Off";
           const yr = yearNow();
-          const { data: bal } = await sb.from("leave_balances")
-            .select("id, total, used").eq("employee_id", employeeId).eq("leave_type", leaveType).eq("year", yr).maybeSingle();
+          const { data: balRows } = await sb.from("leave_balances")
+            .select("id, total, used, leave_type").eq("employee_id", employeeId).eq("year", yr);
+          const norm = (s: string) => (s || "").trim().toLowerCase();
+          const bal = (balRows || []).find((b: any) => norm(b.leave_type) === norm(leaveType)) || null;
           if (bal) {
             const newTotal = (bal.total || 0) + credit;
             await sb.from("leave_balances").update({ total: newTotal, remaining: newTotal - (bal.used || 0) }).eq("id", bal.id);

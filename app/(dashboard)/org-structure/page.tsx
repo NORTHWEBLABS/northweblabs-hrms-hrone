@@ -1,6 +1,6 @@
 "use client";
 // Route: app/(dashboard)/org-structure/page.tsx
-// Org Structure: Departments, Verticals, Locations (full CRUD) + reporting org chart.
+// Org Structure: Departments, Verticals, Locations (full CRUD) + reporting org chart + Leave policies.
 // Matches Employees page patterns (drawer/modal + table + toast, indigo/slate tokens, Lucide).
 //
 // Schema notes (verified against DB):
@@ -12,10 +12,11 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createBrowserClient } from "@supabase/ssr";
+import LeavePolicies from "@/components/LeavePolicies";
 import {
   Building2, Plus, X, Loader2, AlertCircle, CheckCircle2, RefreshCw,
   Trash2, Edit2, Layers, MapPin, Network, Users, Star, ChevronDown,
-  Briefcase, Home, Warehouse, Store, Factory, Wifi,
+  Briefcase, Home, Warehouse, Store, Factory, Wifi, ShieldCheck,
 } from "lucide-react";
 
 function useSupabase() {
@@ -37,7 +38,7 @@ interface OrgLocation {
   is_headquarters: boolean; head_employee_id: string | null; created_at: string;
 }
 
-type Tab = "departments" | "verticals" | "locations" | "chart";
+type Tab = "departments" | "verticals" | "locations" | "chart" | "policies";
 
 const LOCATION_TYPES = [
   { value: "office", label: "Office", icon: Briefcase },
@@ -388,6 +389,7 @@ export default function OrgStructurePage() {
     { id: "verticals", label: "Verticals", icon: Network, count: verticals.length },
     { id: "locations", label: "Locations", icon: MapPin, count: locations.length },
     { id: "chart", label: "Org chart", icon: Users },
+    { id: "policies", label: "Leave policies", icon: ShieldCheck },
   ];
 
   const addBtn = () => {
@@ -408,7 +410,7 @@ export default function OrgStructurePage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={fetchAll} className="p-2 hover:bg-gray-100 rounded-lg" title="Refresh"><RefreshCw className="w-4 h-4 text-gray-500" /></button>
-          {tab !== "chart" && (
+          {tab !== "chart" && tab !== "policies" && (
             <button onClick={addBtn} className="flex items-center gap-1.5 px-4 py-2 bg-[#0f172a] text-white text-sm font-semibold rounded-lg hover:bg-[#1e293b]">
               <Plus className="w-4 h-4" />New {tab === "departments" ? "department" : tab === "verticals" ? "vertical" : "location"}
             </button>
@@ -524,6 +526,11 @@ export default function OrgStructurePage() {
                 </>
               )}
             </div>
+          )}
+
+          {/* LEAVE POLICIES */}
+          {tab === "policies" && (
+            <LeavePolicies orgId={orgId} onToast={(message, type) => setToast({ message, type })} />
           )}
         </>
       )}
