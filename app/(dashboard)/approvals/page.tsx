@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createBrowserClient } from "@supabase/ssr";
+import HeadSelect, { Head, headLabel } from "@/components/HeadSelect";
 import {
   Search, X, Loader2, CheckCircle2, AlertCircle, Clock, Send,
   Check, RefreshCw,
@@ -286,6 +287,8 @@ function DetailModal({ request, onUpdate, onClose, ctx, employees }: {
   const [remarks, setRemarks] = useState("");
   const [saving, setSaving] = useState(false);
   const [actError, setActError] = useState("");
+  const [heads, setHeads] = useState<Head[]>([]);
+  const [headId, setHeadId] = useState<string>("");
 
   const isApprover = request.assigned_to === ctx.userId || ["owner", "admin", "hr"].includes(ctx.userRole);
   const isPending = request.status === "pending" || request.status === "escalated";
@@ -295,10 +298,26 @@ function DetailModal({ request, onUpdate, onClose, ctx, employees }: {
     sb.from("approval_history").select("*").eq("request_id", request.id).order("created_at").then(({ data }) => { if (data) setHistory(data); });
   }, [request.id, sb]);
 
+  // For expense requests, load heads and the expense's current head_id (if any)
+  useEffect(() => {
+    if (request.type !== "expense") return;
+    sb.from("expense_heads").select("id, name, parent_id").eq("org_id", ctx.orgId).eq("active", true).order("name")
+      .then(({ data }) => { if (data) setHeads(data as Head[]); });
+    const expId = request.payload?.expense_id;
+    if (expId) {
+      sb.from("expenses").select("head_id").eq("id", expId).maybeSingle()
+        .then(({ data }) => { if (data?.head_id) setHeadId(data.head_id); });
+    }
+  }, [request.type, request.payload, ctx.orgId, sb]);
+
   // Approve/reject now go through the shared side-effect route
   const handleAction = async (action: "approved" | "rejected") => {
     setSaving(true); setActError("");
     try {
+      // For expense approvals, persist the head the approver assigned (if any) before flipping status
+      if (action === "approved" && request.type === "expense" && request.payload?.expense_id && headId) {
+        await sb.from("expenses").update({ head_id: headId }).eq("id", request.payload.expense_id);
+      }
       const res = await fetch("/api/approvals/act", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestId: request.id, action, actorUserId: ctx.userId, actorName: ctx.userName, remarks: remarks || undefined }),
@@ -380,9 +399,23 @@ function DetailModal({ request, onUpdate, onClose, ctx, employees }: {
             <div className="grid grid-cols-1 gap-3"><PayloadCard tone="violet" label="WFH date" value={p.date ? fmtDate(p.date) : "—"} /></div>
           )}
           {request.type === "expense" && (
-            <div className="grid grid-cols-2 gap-3">
-              <PayloadCard tone="amber" label="Amount" value={`₹${Number(p.amount || 0).toLocaleString("en-IN")}`} />
-              <PayloadCard tone="orange" label="Category" value={p.category} />
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <PayloadCard tone="amber" label="Amount" value={`₹${Number(p.amount || 0).toLocaleString("en-IN")}`} />
+                <PayloadCard tone="orange" label="Category" value={p.category} />
+              </div>
+              <div className="p-3 bg-indigo-50/40 border border-indigo-100 rounded-xl">
+                {isApprover && isPending ? (
+                  <HeadSelect heads={heads} value={headId} onChange={setHeadId} orgId={ctx.orgId} onHeadsChange={setHeads}
+                    label="Assign expense head" />
+                ) : (
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold text-indigo-600 mb-0.5">Expense head</p>
+                    <p className="text-sm font-bold text-gray-900">{headId ? headLabel(heads, headId) : "—"}</p>
+                  </div>
+                )}
+                {isApprover && isPending && <p className="text-[11px] text-gray-400 mt-1.5">Classify this claim before approving — saved to the expense on approval.</p>}
+              </div>
             </div>
           )}
           {request.type === "asset" && (
