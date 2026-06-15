@@ -1,6 +1,7 @@
 "use client";
 // Route: app/(dashboard)/cash-register/page.tsx
-// Cash Register V3: Bulk sales entry, channel+payment reconciliation, expenses with heads/categories, handovers
+// Cash Register V3: Bulk sales entry, channel+payment reconciliation, register expenses with own categories, handovers
+// Client-specific (Krazy Caterpillar retail). Uses register_expenses + register_expense_categories + cash_handovers.
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createBrowserClient } from "@supabase/ssr";
@@ -30,7 +31,60 @@ const fmtDate = (d: string) => new Date(d + "T00:00").toLocaleDateString("en-IN"
 
 const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition placeholder:text-gray-300";
 
-// ── New Expense Head Modal ────────────────────────────────────────────────────
+const CAT_COLORS = ["#6366F1", "#22C55E", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4", "#EC4899", "#14B8A6", "#F97316", "#64748B"];
+
+// ── New Register Category Modal ───────────────────────────────────────────────
+function RegisterCategoryModal({ existing, onSave, onClose }: { existing: ExpCategory[]; onSave: (c: ExpCategory) => void; onClose: () => void }) {
+  const sb = useSB();
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(CAT_COLORS[existing.length % CAT_COLORS.length]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async () => {
+    if (!name.trim()) { setError("Name required"); return; }
+    if (existing.some(c => c.name.toLowerCase() === name.trim().toLowerCase())) { setError("Category already exists"); return; }
+    setSaving(true); setError("");
+    const orgId = await getOrgId(sb);
+    const { data, error: e } = await sb.from("register_expense_categories").insert({
+      org_id: orgId, name: name.trim(), color, sort_order: existing.length,
+    }).select("id, name, color").single();
+    if (e) { setError(e.message); setSaving(false); return; }
+    onSave(data as ExpCategory); onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-base font-bold text-gray-900 flex items-center gap-2"><Tag className="w-4 h-4 text-indigo-500" />New expense category</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2"><AlertCircle className="w-4 h-4" />{error}</div>}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Category name *</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Vendor payment, Packaging" className={inputCls} autoFocus />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-2">Colour</label>
+            <div className="flex flex-wrap gap-2">
+              {CAT_COLORS.map(c => (
+                <button key={c} onClick={() => setColor(c)} className={`w-7 h-7 rounded-full border-2 transition ${color === c ? "border-gray-900 scale-110" : "border-transparent"}`} style={{ background: c }} />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="px-6 py-3 border-t border-gray-100 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+          <button onClick={save} disabled={saving} className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}Add category
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Handover Modal ────────────────────────────────────────────────────────────
 function HandoverModal({ registerId, onSave, onClose }: { registerId: string; onSave: (h: Handover) => void; onClose: () => void }) {
@@ -81,6 +135,7 @@ function HandoverModal({ registerId, onSave, onClose }: { registerId: string; on
             <div><label className="block text-xs font-semibold text-gray-600 mb-1">Reference #</label><input value={ref} onChange={e => setRef(e.target.value)} placeholder="DEP-001" className={inputCls} /></div>
           </div>
           <div><label className="block text-xs font-semibold text-gray-600 mb-1">Handed to</label><input value={handedTo} onChange={e => setHandedTo(e.target.value)} placeholder="Bank / Person" className={inputCls} /></div>
+          <div><label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label><input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" className={inputCls} /></div>
         </div>
         <div className="px-6 py-4 border-t bg-gray-50 flex gap-3">
           <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 bg-white border border-gray-200 rounded-xl font-medium">Cancel</button>
@@ -111,6 +166,7 @@ export default function CashRegisterPage() {
 
   // Modals
   const [showHandover, setShowHandover] = useState(false);
+  const [showCatModal, setShowCatModal] = useState(false);
 
   // Sales form
   const [totalSales, setTotalSales] = useState("");
@@ -123,13 +179,12 @@ export default function CashRegisterPage() {
   const [payCard, setPayCard] = useState("");
   const [payGateway, setPayGateway] = useState("");
 
-  // Expense form (uses expenses + expense_categories tables)
+  // Expense form (uses register_expenses + register_expense_categories)
   const [expTitle, setExpTitle] = useState("");
   const [expCatId, setExpCatId] = useState("");
   const [expDesc, setExpDesc] = useState("");
   const [expAmount, setExpAmount] = useState("");
   const [expPayMode, setExpPayMode] = useState("cash");
-  const [expVendor, setExpVendor] = useState("");
 
   // Fetch
   const fetchDay = useCallback(async () => {
@@ -146,7 +201,6 @@ export default function CashRegisterPage() {
     }
     if (reg) {
       setRegister(reg as Register);
-      // Populate form
       setTotalSales(reg.total_sales ? String(reg.total_sales) : "");
       setTotalOrders(reg.total_orders ? String(reg.total_orders) : "");
       setWalkin({ amount: reg.walkin_amount ? String(reg.walkin_amount) : "", orders: reg.walkin_orders ? String(reg.walkin_orders) : "" });
@@ -158,9 +212,9 @@ export default function CashRegisterPage() {
       setPayGateway(reg.pay_gateway ? String(reg.pay_gateway) : "");
     }
 
-    // Fetch categories, expenses for this date, handovers
+    // Fetch register categories, expenses for this date, handovers
     const [{ data: cats }, { data: exps }, { data: hvs }] = await Promise.all([
-      sb.from("register_expense_categories").select("id, name, color").eq("org_id", oid).order("name"),
+      sb.from("register_expense_categories").select("id, name, color").eq("org_id", oid).order("sort_order"),
       sb.from("register_expenses").select("*").eq("org_id", oid).eq("date", date).order("created_at", { ascending: false }),
       sb.from("cash_handovers").select("*").eq("org_id", oid).eq("date", date).order("created_at", { ascending: false }),
     ]);
@@ -187,8 +241,6 @@ export default function CashRegisterPage() {
   const cashExpenses = expenses.filter(e => e.payment_mode === "cash").reduce((s, e) => s + e.amount, 0);
   const opening = register?.opening_cash || 0;
   const cashInHand = opening + (Number(payCash) || 0) - cashExpenses - totalHandoverAmt;
-
-  
 
   const expByCat = useMemo(() => {
     const map: Record<string, { amount: number; color: string }> = {};
@@ -235,8 +287,10 @@ export default function CashRegisterPage() {
     }).select().single();
     if (!error && data) {
       setExpenses(p => [data as Expense, ...p]);
-      setExpTitle(""); setExpDesc(""); setExpAmount(""); setExpCatId(""); 
+      setExpTitle(""); setExpDesc(""); setExpAmount(""); setExpCatId("");
       setToast({ msg: "Expense recorded", type: "success" });
+    } else if (error) {
+      setToast({ msg: error.message, type: "error" });
     }
   };
 
@@ -254,6 +308,7 @@ export default function CashRegisterPage() {
   return (
     <div className="max-w-6xl mx-auto">
       {showHandover && register && <HandoverModal registerId={register.id} onSave={h => { setHandovers(p => [h, ...p]); setToast({ msg: "Handover recorded", type: "success" }); }} onClose={() => setShowHandover(false)} />}
+      {showCatModal && <RegisterCategoryModal existing={categories} onSave={c => { setCategories(p => [...p, c]); setExpCatId(c.id); setToast({ msg: "Category added", type: "success" }); }} onClose={() => setShowCatModal(false)} />}
 
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
@@ -313,7 +368,6 @@ export default function CashRegisterPage() {
           <h3 className="text-sm font-bold text-gray-900 mb-1">Record daily sales</h3>
           <p className="text-xs text-gray-400 mb-5">Enter total, then split by channel and payment. All three must match.</p>
 
-          {/* Total */}
           <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl mb-5">
             <div className="flex-1">
               <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Total sales (₹)</label>
@@ -325,9 +379,7 @@ export default function CashRegisterPage() {
             </div>
           </div>
 
-          {/* Channel + Payment grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            {/* Channels */}
             <div className="border border-gray-200 rounded-xl p-4">
               <p className="text-xs font-semibold text-gray-500 uppercase mb-3 flex items-center gap-2"><span className="w-2 h-2 bg-amber-500 rounded-full" />Channel-wise split</p>
               {[
@@ -347,7 +399,6 @@ export default function CashRegisterPage() {
               </div>
             </div>
 
-            {/* Payments */}
             <div className="border border-gray-200 rounded-xl p-4">
               <p className="text-xs font-semibold text-gray-500 uppercase mb-3 flex items-center gap-2"><span className="w-2 h-2 bg-violet-500 rounded-full" />Payment mode split</p>
               {[
@@ -368,7 +419,6 @@ export default function CashRegisterPage() {
             </div>
           </div>
 
-          {/* Reconciliation */}
           {salesNum > 0 && (
             <div className={`flex items-center gap-2 mt-4 p-3 rounded-xl border ${isReconciled ? "bg-emerald-50 border-emerald-200" : hasMismatch ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"}`}>
               {isReconciled ? <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" /> : hasMismatch ? <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" /> : null}
@@ -387,14 +437,14 @@ export default function CashRegisterPage() {
         </div>
       )}
 
-      {/* ── TAB: Expenses (from expenses + expense_categories tables) ── */}
+      {/* ── TAB: Expenses (register_expenses + register_expense_categories) ── */}
       {tab === "expenses" && (
         <div className="space-y-5">
           {/* Categories overview */}
           <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2"><Tag className="w-4 h-4 text-indigo-500" />Expense categories</h3>
-              <a href="/expenses" className="text-xs text-indigo-600 font-semibold hover:underline">Manage categories →</a>
+              <button onClick={() => setShowCatModal(true)} className="text-xs text-indigo-600 font-semibold hover:underline flex items-center gap-1"><Plus className="w-3 h-3" />New category</button>
             </div>
             <div className="flex flex-wrap gap-2">
               {categories.map(c => (
@@ -402,7 +452,7 @@ export default function CashRegisterPage() {
                   <span className="w-2 h-2 rounded-full" style={{ background: c.color || "#6B7280" }} />{c.name}
                 </span>
               ))}
-              {categories.length === 0 && <p className="text-xs text-gray-400">No categories yet. Add them in the <a href="/expenses" className="text-indigo-600 underline">Expenses module</a>.</p>}
+              {categories.length === 0 && <p className="text-xs text-gray-400">No categories yet. Click “New category” to add one.</p>}
             </div>
           </div>
 
@@ -413,18 +463,17 @@ export default function CashRegisterPage() {
               <span className="text-xs text-gray-400">{expenses.length} entries · {fmtINR(totalExp)}</span>
             </div>
 
-            {/* Inline form */}
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl mb-4">
               <div className="flex items-center gap-2 mb-2">
                 <input value={expTitle} onChange={e => setExpTitle(e.target.value)} placeholder="Title *" className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                 <input type="number" value={expAmount} onChange={e => setExpAmount(e.target.value)} placeholder="₹ Amount *" className="w-24 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-right font-medium focus:outline-none focus:ring-2 focus:ring-indigo-200" />
               </div>
               <div className="flex items-center gap-2">
-                <select value={expCatId} onChange={e => setExpCatId(e.target.value)} className="px-2 py-2 text-xs border border-gray-200 rounded-lg bg-white w-32 focus:outline-none focus:ring-2 focus:ring-indigo-200">
+                <select value={expCatId} onChange={e => { if (e.target.value === "__new__") { setShowCatModal(true); } else { setExpCatId(e.target.value); } }} className="px-2 py-2 text-xs border border-gray-200 rounded-lg bg-white w-36 focus:outline-none focus:ring-2 focus:ring-indigo-200">
                   <option value="">Category…</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="__new__">＋ New category…</option>
                 </select>
-                
                 <select value={expPayMode} onChange={e => setExpPayMode(e.target.value)} className="px-2 py-2 text-xs border border-gray-200 rounded-lg bg-white w-20 focus:outline-none focus:ring-2 focus:ring-indigo-200">
                   <option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="bank_transfer">Bank</option>
                 </select>
@@ -437,15 +486,12 @@ export default function CashRegisterPage() {
             {expenses.length === 0 ? <p className="text-xs text-gray-400 text-center py-6">No expenses recorded for this date</p> : (
               <div className="space-y-2">
                 {expenses.map(e => {
-                  
+                  const cat = e.category_name ? categories.find(c => c.name === e.category_name) : null;
                   return (
                     <div key={e.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900">{e.head_name}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          
-                          {e.description && <span className="text-xs text-gray-400 truncate">· {e.description}</span>}
-                        </div>
+                        {e.description && <p className="text-xs text-gray-400 truncate mt-0.5">{e.description}</p>}
                       </div>
                       {cat && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border" style={{ background: (cat.color || "#6B7280") + "15", color: cat.color || "#6B7280", borderColor: (cat.color || "#6B7280") + "30" }}>
@@ -509,7 +555,6 @@ export default function CashRegisterPage() {
       {/* ── TAB: Summary ────────────────────────────────────────── */}
       {tab === "summary" && (
         <div className="space-y-5">
-          {/* Channel breakdown */}
           <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
             <h3 className="text-sm font-bold text-gray-900 mb-4">Channel-wise sales</h3>
             {[
@@ -530,7 +575,6 @@ export default function CashRegisterPage() {
             })}
           </div>
 
-          {/* Payment breakdown */}
           <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
             <h3 className="text-sm font-bold text-gray-900 mb-4">Payment mode breakdown</h3>
             {[
@@ -552,7 +596,6 @@ export default function CashRegisterPage() {
             })}
           </div>
 
-          {/* Cash flow formula */}
           <div className="p-4 border border-dashed border-gray-300 rounded-xl text-center">
             <p className="text-xs text-gray-500 leading-relaxed">
               Opening <strong className="text-gray-900">{fmtINR(opening)}</strong> + Cash sales <strong className="text-emerald-600">+{fmtINR(Number(payCash) || 0)}</strong> − Expenses (cash) <strong className="text-red-500">-{fmtINR(cashExpenses)}</strong> − Handovers <strong className="text-red-500">-{fmtINR(totalHandoverAmt)}</strong>
