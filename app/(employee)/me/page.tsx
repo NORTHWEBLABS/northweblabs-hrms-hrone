@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import { captureAndEvaluate } from "@/lib/geo";
+import HeadSelect, { Head } from "@/components/HeadSelect";
 import {
   Clock, Calendar, Wallet, Bell, CheckCircle2, AlertCircle, Loader2,
   LogOut, Sun, Moon, Cloud, X, UserPlus, Sparkles, ArrowRight,
@@ -79,7 +80,8 @@ export default function MePage() {
   // Claim reimbursement modal
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expCategories, setExpCategories] = useState<ExpCategory[]>([]);
-  const [expForm, setExpForm] = useState({ title: "", amount: "", category_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
+  const [heads, setHeads] = useState<Head[]>([]);
+  const [expForm, setExpForm] = useState({ title: "", amount: "", category_id: "", head_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
   const [expSaving, setExpSaving] = useState(false);
   const [expError, setExpError] = useState("");
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
@@ -194,7 +196,7 @@ export default function MePage() {
       // 1. Insert expense (pending), tied to this employee
       const { data: exp, error: e } = await sb.from("expenses").insert({
         org_id: orgId, title: expForm.title.trim(), amount: Number(expForm.amount),
-        category_id: expForm.category_id || null, date: expForm.date,
+        category_id: expForm.category_id || null, head_id: expForm.head_id || null, date: expForm.date,
         description: expForm.description || null, payment_method: expForm.payment_method || null,
         vendor: expForm.vendor || null, status: "pending", employee_id: empId,
       }).select().single();
@@ -244,7 +246,7 @@ export default function MePage() {
       }
 
       setShowExpenseModal(false);
-      setExpForm({ title: "", amount: "", category_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
+      setExpForm({ title: "", amount: "", category_id: "", head_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
       setToast({ msg: "Reimbursement submitted for approval", type: "success" });
     } catch (err: any) { setExpError(err.message || "Failed to submit"); }
     finally { setExpSaving(false); }
@@ -304,6 +306,9 @@ export default function MePage() {
         // Expense categories for the claim modal
         const { data: cats } = await sb.from("expense_categories").select("id, name, icon, color").eq("org_id", orgId).order("name");
         setExpCategories((cats || []) as ExpCategory[]);
+        // Expense heads (hierarchical)
+        const { data: hds } = await sb.from("expense_heads").select("id, name, parent_id").eq("org_id", orgId).eq("active", true).order("name");
+        setHeads((hds || []) as Head[]);
       }
 
       const empId = empData?.id;
@@ -777,6 +782,9 @@ export default function MePage() {
                   </div>
                 </div>
               )}
+              <HeadSelect heads={heads} value={expForm.head_id} onChange={id => setExpForm(p => ({ ...p, head_id: id }))}
+                orgId={user?.org_id || localStorage.getItem("activeOrgId") || ""} onHeadsChange={setHeads} />
+              <p className="text-[11px] text-gray-400 -mt-2">Head is optional — your approver can assign it during approval.</p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">Spent via</label>

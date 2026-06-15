@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createBrowserClient } from "@supabase/ssr";
+import HeadSelect, { Head, headLabel } from "@/components/HeadSelect";
 import {
   Plus, Search, X, Loader2, CheckCircle2, AlertCircle,
   TrendingUp, TrendingDown, IndianRupee, Calendar,
@@ -13,7 +14,7 @@ import {
 
 function useSB() { return useMemo(() => createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!), []); }
 
-interface Expense { id: string; title: string; amount: number; date: string; category_id: string; description: string | null; status: string; payment_method: string | null; vendor: string | null; receipt_url: string | null; employee_id: string | null; created_at: string; paid_at?: string | null; paid_method?: string | null; paid_reference?: string | null; }
+interface Expense { id: string; title: string; amount: number; date: string; category_id: string; head_id?: string | null; description: string | null; status: string; payment_method: string | null; vendor: string | null; receipt_url: string | null; employee_id: string | null; created_at: string; paid_at?: string | null; paid_method?: string | null; paid_reference?: string | null; }
 interface Category { id: string; name: string; icon: string | null; color: string | null; budget_limit: number | null; }
 interface SessionUser { id: string; email: string; full_name: string | null; org_id: string | null; }
 
@@ -54,9 +55,9 @@ function StatCard({ icon, label, value, sub, trend, color }: { icon: React.React
 }
 
 // ── Add Expense Modal — captures employee_id (self-claim) + creates approval request ──
-function AddExpenseModal({ categories, user, onSaved, onClose }: { categories: Category[]; user: SessionUser | null; onSaved: (msg: string) => void; onClose: () => void }) {
+function AddExpenseModal({ categories, heads, setHeads, user, onSaved, onClose }: { categories: Category[]; heads: Head[]; setHeads: (h: Head[]) => void; user: SessionUser | null; onSaved: (msg: string) => void; onClose: () => void }) {
   const sb = useSB();
-  const [form, setForm] = useState({ title: "", amount: "", category_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
+  const [form, setForm] = useState({ title: "", amount: "", category_id: "", head_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
   const [forSelf, setForSelf] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -81,7 +82,7 @@ function AddExpenseModal({ categories, user, onSaved, onClose }: { categories: C
     // 1. Insert the expense (pending)
     const { data: exp, error: e } = await sb.from("expenses").insert({
       org_id: orgId, title: form.title.trim(), amount: Number(form.amount),
-      category_id: form.category_id || null, date: form.date,
+      category_id: form.category_id || null, head_id: form.head_id || null, date: form.date,
       description: form.description || null, payment_method: form.payment_method || null,
       vendor: form.vendor || null, status: "pending",
       employee_id: employeeId,
@@ -184,6 +185,8 @@ function AddExpenseModal({ categories, user, onSaved, onClose }: { categories: C
               ))}
             </div>
           </div>
+          <HeadSelect heads={heads} value={form.head_id} onChange={id => setForm(p => ({ ...p, head_id: id }))}
+            orgId={user?.org_id || localStorage.getItem("activeOrgId") || ""} onHeadsChange={setHeads} />
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Spent via</label>
@@ -294,6 +297,7 @@ export default function ExpensesPage() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [heads, setHeads] = useState<Head[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [markPaid, setMarkPaid] = useState<Expense | null>(null);
@@ -316,12 +320,14 @@ export default function ExpensesPage() {
     setUser(u);
     if (!oid) { setLoading(false); return; }
     setOrgId(oid);
-    const [{ data: exps }, { data: cats }] = await Promise.all([
+    const [{ data: exps }, { data: cats }, { data: hds }] = await Promise.all([
       sb.from("expenses").select("*").eq("org_id", oid).order("date", { ascending: false }),
       sb.from("expense_categories").select("*").eq("org_id", oid).order("name"),
+      sb.from("expense_heads").select("id, name, parent_id").eq("org_id", oid).eq("active", true).order("name"),
     ]);
     setExpenses((exps || []) as Expense[]);
     setCategories((cats || []) as Category[]);
+    setHeads((hds || []) as Head[]);
     setLoading(false);
   }, [sb, orgId]);
 
@@ -345,7 +351,7 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {showAdd && <AddExpenseModal categories={categories} user={user} onSaved={(msg) => { setToast({ msg, type: "success" }); fetchAll(); }} onClose={() => setShowAdd(false)} />}
+      {showAdd && <AddExpenseModal categories={categories} heads={heads} setHeads={setHeads} user={user} onSaved={(msg) => { setToast({ msg, type: "success" }); fetchAll(); }} onClose={() => setShowAdd(false)} />}
       {markPaid && <MarkPaidModal expense={markPaid} user={user} onDone={(msg) => { setToast({ msg, type: "success" }); fetchAll(); }} onClose={() => setMarkPaid(null)} />}
 
       <div className="flex items-start justify-between mb-6">
@@ -409,7 +415,7 @@ export default function ExpensesPage() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead><tr className="bg-gray-50 border-b border-gray-200">
-                {["Reimbursement", "Category", "Date", "Amount", "Status", "Settlement", ""].map(h => (
+                {["Reimbursement", "Head", "Category", "Date", "Amount", "Status", "Settlement", ""].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>
                 ))}
               </tr></thead>
@@ -421,6 +427,9 @@ export default function ExpensesPage() {
                       <td className="px-5 py-3.5">
                         <p className="text-sm font-semibold text-gray-900">{exp.title}</p>
                         {exp.vendor && <p className="text-xs text-gray-400">{exp.vendor}</p>}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {exp.head_id ? <span className="text-xs text-gray-600">{headLabel(heads, exp.head_id)}</span> : <span className="text-xs text-gray-300">—</span>}
                       </td>
                       <td className="px-5 py-3.5">
                         {cat ? <Chip label={`${cat.icon || ""} ${cat.name}`} color={cat.color || "#6B7280"} /> : <span className="text-xs text-gray-400">—</span>}
