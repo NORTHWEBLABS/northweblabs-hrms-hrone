@@ -327,6 +327,49 @@ function PayslipModal({ row, month, year, orgName, onClose }: { row:PayslipRow; 
 // --- Adjustments Modal: all overridable fields for one employee in one place ---
 // Each field shows its computed/expected value and a contextual message when the
 // admin's input differs (higher or lower). Replaces the old inline OverrideCell.
+// Stable top-level field component (must NOT be defined inside AdjustmentsModal,
+// or the input loses focus on every keystroke due to remount).
+function AdjField({
+  label, value, setValue, computed, computedLabel, max, messageFor,
+}: {
+  label: string; value: number; setValue: (n:number)=>void;
+  computed: number; computedLabel: string; max?: number;
+  messageFor: (v:number) => { tone: "info"|"warn"|"ok"; text: string } | null;
+}) {
+  const msg = messageFor(value);
+  return (
+    <div className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <Pencil className="w-3 h-3 text-indigo-400" />
+          <span className="text-xs font-semibold text-gray-700">{label}</span>
+          <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-600 rounded text-[10px] font-bold uppercase tracking-wide">editable</span>
+        </div>
+        <span className="text-[11px] text-gray-400">{computedLabel}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-400 font-mono">₹</span>
+        <input
+          type="text" inputMode="numeric" value={String(value)}
+          onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, ""); let v = Number(digits)||0; if (max!=null) v = Math.min(v, max); setValue(v); }}
+          className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg font-mono text-right focus:outline-none focus:ring-2 focus:ring-indigo-100"
+        />
+        {value !== computed && (
+          <button onClick={()=>setValue(computed)} className="text-[11px] text-indigo-500 hover:text-indigo-700 font-medium whitespace-nowrap">reset</button>
+        )}
+      </div>
+      {msg && (
+        <div className={`mt-2 flex items-start gap-1.5 text-[11px] rounded-lg px-2 py-1.5 ${
+          msg.tone==="warn" ? "bg-amber-50 text-amber-700" :
+          msg.tone==="ok" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
+          <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+          <span>{msg.text}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdjustmentsModal({
   row, workingDays, calendarDays, onApply, onClose,
 }: {
@@ -345,47 +388,6 @@ function AdjustmentsModal({
     : 0;
 
   // A single editable field block: label, computed hint, input, and a diff message.
-  function Field({
-    label, value, setValue, computed, computedLabel, max, messageFor,
-  }: {
-    label: string; value: number; setValue: (n:number)=>void;
-    computed: number; computedLabel: string; max?: number;
-    messageFor: (v:number) => { tone: "info"|"warn"|"ok"; text: string } | null;
-  }) {
-    const msg = messageFor(value);
-    return (
-      <div className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-3">
-        <div className="flex items-center justify-between mb-1.5">
-          <div className="flex items-center gap-1.5">
-            <Pencil className="w-3 h-3 text-indigo-400" />
-            <span className="text-xs font-semibold text-gray-700">{label}</span>
-            <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-600 rounded text-[10px] font-bold uppercase tracking-wide">editable</span>
-          </div>
-          <span className="text-[11px] text-gray-400">{computedLabel}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400 font-mono">₹</span>
-          <input
-            type="text" inputMode="numeric" value={String(value)}
-            onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, ""); let v = Number(digits)||0; if (max!=null) v = Math.min(v, max); setValue(v); }}
-            className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg font-mono text-right focus:outline-none focus:ring-2 focus:ring-indigo-100"
-          />
-          {value !== computed && (
-            <button onClick={()=>setValue(computed)} className="text-[11px] text-indigo-500 hover:text-indigo-700 font-medium whitespace-nowrap">reset</button>
-          )}
-        </div>
-        {msg && (
-          <div className={`mt-2 flex items-start gap-1.5 text-[11px] rounded-lg px-2 py-1.5 ${
-            msg.tone==="warn" ? "bg-amber-50 text-amber-700" :
-            msg.tone==="ok" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
-            <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-            <span>{msg.text}</span>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   const apply = () => onApply({ bonus, otherAllow, otherDed, lopWaived, loanRecovery });
 
   return (
@@ -403,21 +405,21 @@ function AdjustmentsModal({
         </div>
 
         <div className="px-6 py-5 space-y-3">
-          <Field
+          <AdjField
             label="Bonus" value={bonus} setValue={setBonus} computed={0} computedLabel="Default ₹0"
             messageFor={v => v>0 ? { tone:"ok", text:`Adds ${fmtINR(v)} to gross earnings this month.` } : null}
           />
-          <Field
+          <AdjField
             label="Extra allowance" value={otherAllow} setValue={setOtherAllow} computed={0} computedLabel="Default ₹0"
             messageFor={v => v>0 ? { tone:"ok", text:`${fmtINR(v)} added on top of standard allowances.` } : null}
           />
-          <Field
+          <AdjField
             label="Extra deduction" value={otherDed} setValue={setOtherDed} computed={0} computedLabel="Default ₹0"
             messageFor={v => v>0 ? { tone:"warn", text:`${fmtINR(v)} additional deduction beyond statutory.` } : null}
           />
 
           {row.lop_days > 0 && (
-            <Field
+            <AdjField
               label="LOP days waived (good-will)" value={lopWaived} setValue={setLopWaived}
               computed={0} computedLabel={`${row.lop_days} LOP day(s) · ${fmtINR(perDay)}/day`} max={row.lop_days}
               messageFor={v => {
@@ -429,7 +431,7 @@ function AdjustmentsModal({
           )}
 
           {row.loan_outstanding > 0 && (
-            <Field
+            <AdjField
               label="Loan / advance recovery" value={loanRecovery} setValue={setLoanRecovery}
               computed={Math.min(row.loan_installment, row.loan_outstanding)}
               computedLabel={`${fmtINR(row.loan_installment)}/mo · ${fmtINR(row.loan_outstanding)} outstanding`} max={row.loan_outstanding}
