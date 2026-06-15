@@ -1,6 +1,7 @@
 "use client";
 // Route: app/me/page.tsx — Employee Dashboard
 // Leave balance from leave_balances (policy engine). Quick punch: check-in/out with geo + link to /my-attendance.
+// Claim reimbursement: creates expense row + approval_request (payload carries expense_id) -> pipeline -> admin mark-paid.
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -10,7 +11,7 @@ import {
   Clock, Calendar, Wallet, Bell, CheckCircle2, AlertCircle, Loader2,
   LogOut, Sun, Moon, Cloud, X, UserPlus, Sparkles, ArrowRight,
   MapPin, Phone, Mail, Briefcase, CalendarDays, FileText,
-  MessageSquare, TrendingUp, Award,
+  MessageSquare, TrendingUp, Award, Receipt,
 } from "lucide-react";
 
 function useSB() {
@@ -24,6 +25,7 @@ interface UserProfile { id: string; full_name: string | null; email: string; pho
 interface EmpRecord { id: string; full_name: string | null; department: string | null; designation: string | null; gross_salary: number | null; onboarding_completed: boolean | null; employee_code: string | null; date_of_joining: string | null; }
 interface OrgInfo { id: string; name: string; industry: string | null; city: string | null; state: string | null; }
 interface Balance { leave_type: string; total: number; used: number; remaining: number | null; }
+interface ExpCategory { id: string; name: string; icon: string | null; color: string | null; }
 
 const greet = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const greetIcon = () => { const h = new Date().getHours(); return h < 6 ? <Moon className="w-5 h-5 text-indigo-400" /> : h < 12 ? <Sun className="w-5 h-5 text-amber-400" /> : h < 17 ? <Cloud className="w-5 h-5 text-blue-400" /> : <Moon className="w-5 h-5 text-indigo-400" />; };
@@ -74,6 +76,12 @@ export default function MePage() {
   const [leaveReason, setLeaveReason] = useState("");
   const [leaveSaving, setLeaveSaving] = useState(false);
   const [leaveError, setLeaveError] = useState("");
+  // Claim reimbursement modal
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [expCategories, setExpCategories] = useState<ExpCategory[]>([]);
+  const [expForm, setExpForm] = useState({ title: "", amount: "", category_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
+  const [expSaving, setExpSaving] = useState(false);
+  const [expError, setExpError] = useState("");
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t); } }, [toast]);
@@ -174,6 +182,74 @@ export default function MePage() {
     } finally { setLeaveSaving(false); }
   };
 
+  const handleClaimExpense = async () => {
+    if (!expForm.title.trim()) { setExpError("Title required"); return; }
+    if (!expForm.amount || Number(expForm.amount) <= 0) { setExpError("Amount required"); return; }
+    setExpSaving(true); setExpError("");
+    try {
+      const orgId = user?.org_id || localStorage.getItem("activeOrgId") || "";
+      const empId = emp?.id || null;
+      const claimantName = emp?.full_name || user?.full_name || user?.email || "";
+
+      // 1. Insert expense (pending), tied to this employee
+      const { data: exp, error: e } = await sb.from("expenses").insert({
+        org_id: orgId, title: expForm.title.trim(), amount: Number(expForm.amount),
+        category_id: expForm.category_id || null, date: expForm.date,
+        description: expForm.description || null, payment_method: expForm.payment_method || null,
+        vendor: expForm.vendor || null, status: "pending", employee_id: empId,
+      }).select().single();
+      if (e) { setExpError(e.message); setExpSaving(false); return; }
+
+      // 2. Resolve approver: reporting manager, else owner/admin/hr
+      let approverUserId = "", approverName = "";
+      if (empId) {
+        const { data: empFull } = await sb.from("employees").select("reporting_manager_id").eq("id", empId).maybeSingle();
+        if (empFull?.reporting_manager_id) {
+          const { data: mgr } = await sb.from("employees").select("full_name, email").eq("id", empFull.reporting_manager_id).maybeSingle();
+          if (mgr?.email) {
+            const { data: mgrUser } = await sb.from("users").select("id").eq("email", mgr.email).eq("org_id", orgId).maybeSingle();
+            if (mgrUser) { approverUserId = mgrUser.id; approverName = mgr.full_name || ""; }
+          }
+        }
+      }
+      if (!approverUserId) {
+        const { data: admins } = await sb.from("users").select("id, full_name").eq("org_id", orgId).in("role", ["owner", "admin", "hr"]).limit(1);
+        if (admins?.length) { approverUserId = admins[0].id; approverName = admins[0].full_name || "Admin"; }
+      }
+
+      // 3. Approval request — payload carries expense_id so act/route flips the expense on approve
+      if (approverUserId && exp) {
+        const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+        const { data: req } = await sb.from("approval_requests").insert({
+          org_id: orgId, type: "expense",
+          title: `Reimbursement — ${expForm.title.trim()} (₹${Number(expForm.amount).toLocaleString("en-IN")})`,
+          description: expForm.description || null,
+          raised_by: user?.id || empId, raised_by_name: claimantName,
+          assigned_to: approverUserId, assigned_to_name: approverName,
+          status: "pending", escalation_level: 0, tat_hours: 48, deadline_at: deadline,
+          payload: { expense_id: exp.id, amount: Number(expForm.amount), employee_id: empId },
+        }).select().maybeSingle();
+        if (req) {
+          await sb.from("notifications").insert({
+            org_id: orgId, user_id: approverUserId, title: "Reimbursement request",
+            body: `${claimantName} submitted a reimbursement: ${expForm.title.trim()} (₹${Number(expForm.amount).toLocaleString("en-IN")})`,
+            type: "approval", reference_type: "approval_request", reference_id: req.id, link: "/approvals",
+          });
+          await sb.from("approval_history").insert({
+            request_id: req.id, action: "submitted", acted_by: user?.id || empId,
+            acted_by_name: claimantName, notes: "Reimbursement submitted", from_status: null, to_status: "pending",
+          });
+          try { await fetch("/api/approvals/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: req.id, event: "applied" }) }); } catch {}
+        }
+      }
+
+      setShowExpenseModal(false);
+      setExpForm({ title: "", amount: "", category_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
+      setToast({ msg: "Reimbursement submitted for approval", type: "success" });
+    } catch (err: any) { setExpError(err.message || "Failed to submit"); }
+    finally { setExpSaving(false); }
+  };
+
   const fetchUser = useCallback(async () => {
     setLoading(true); setError("");
     try {
@@ -225,6 +301,9 @@ export default function MePage() {
       if (orgId) {
         const { data: orgData } = await sb.from("organizations").select("id, name, industry, city, state").eq("id", orgId).maybeSingle();
         if (orgData) { setOrg(orgData as OrgInfo); localStorage.setItem("activeOrgId", orgData.id); localStorage.setItem("activeOrgName", orgData.name); }
+        // Expense categories for the claim modal
+        const { data: cats } = await sb.from("expense_categories").select("id, name, icon, color").eq("org_id", orgId).order("name");
+        setExpCategories((cats || []) as ExpCategory[]);
       }
 
       const empId = empData?.id;
@@ -454,6 +533,7 @@ export default function MePage() {
                     { label: "View payslips", icon: <Wallet className="w-4 h-4" />, color: "bg-violet-50 text-violet-600 border-violet-100", action: () => {} },
                     { label: "My approvals", icon: <FileText className="w-4 h-4" />, color: "bg-amber-50 text-amber-600 border-amber-100", action: () => window.location.href = "/approvals" },
                     { label: "Raise a ticket", icon: <MessageSquare className="w-4 h-4" />, color: "bg-rose-50 text-rose-600 border-rose-100", action: () => window.location.href = "/approvals" },
+                    { label: "Claim reimbursement", icon: <Receipt className="w-4 h-4" />, color: "bg-emerald-50 text-emerald-600 border-emerald-100", action: () => setShowExpenseModal(true) },
                   ].map(a => (
                     <button key={a.label} onClick={a.action} className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm font-medium hover:shadow-sm transition ${a.color}`}>{a.icon}{a.label}</button>
                   ))}
@@ -651,6 +731,77 @@ export default function MePage() {
               <button onClick={handleApplyLeave} disabled={leaveSaving}
                 className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
                 {leaveSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarDays className="w-4 h-4" />}Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Claim Reimbursement Modal */}
+      {showExpenseModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setShowExpenseModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+              <div><h2 className="text-base font-bold text-gray-900">Claim reimbursement</h2><p className="text-xs text-gray-400">Routed to your manager for approval</p></div>
+              <button onClick={() => setShowExpenseModal(false)} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {expError && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2"><AlertCircle className="w-4 h-4" />{expError}</div>}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Title *</label>
+                <input value={expForm.title} onChange={e => setExpForm(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Cab to client office"
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200" autoFocus />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Amount (₹) *</label>
+                  <input type="number" value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} placeholder="500"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Date</label>
+                  <input type="date" value={expForm.date} onChange={e => setExpForm(p => ({ ...p, date: e.target.value }))}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                </div>
+              </div>
+              {expCategories.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category</label>
+                  <div className="flex flex-wrap gap-2">
+                    {expCategories.map(c => (
+                      <button key={c.id} onClick={() => setExpForm(p => ({ ...p, category_id: p.category_id === c.id ? "" : c.id }))}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${expForm.category_id === c.id ? "bg-indigo-600 text-white border-indigo-600" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                        {c.icon} {c.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Spent via</label>
+                  <select value={expForm.payment_method} onChange={e => setExpForm(p => ({ ...p, payment_method: e.target.value }))}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 appearance-none">
+                    {["cash", "card", "upi", "bank_transfer"].map(m => <option key={m} value={m}>{m.replace("_", " ").replace(/^\w/, c => c.toUpperCase())}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Vendor</label>
+                  <input value={expForm.vendor} onChange={e => setExpForm(p => ({ ...p, vendor: e.target.value }))} placeholder="Optional"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Notes</label>
+                <textarea value={expForm.description} onChange={e => setExpForm(p => ({ ...p, description: e.target.value }))} rows={2} placeholder="Add details…"
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 resize-none" />
+              </div>
+            </div>
+            <div className="px-6 py-3 border-t border-gray-100 flex gap-2 sticky bottom-0 bg-white">
+              <button onClick={() => setShowExpenseModal(false)} className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+              <button onClick={handleClaimExpense} disabled={expSaving}
+                className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                {expSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Receipt className="w-4 h-4" />}Submit claim
               </button>
             </div>
           </div>
