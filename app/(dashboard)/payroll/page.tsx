@@ -847,7 +847,14 @@ export default function PayrollPage() {
                                     <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Bonus</span><OverrideCell value={row.override_bonus} onChange={v=>updatePayslip(row.employee.id,"override_bonus",v)}/></div>
                                     <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Extra allowance</span><OverrideCell value={row.override_other_allowance} onChange={v=>updatePayslip(row.employee.id,"override_other_allowance",v)}/></div>
                                     <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Extra deduction</span><OverrideCell value={row.override_other_deductions} onChange={v=>updatePayslip(row.employee.id,"override_other_deductions",v)}/></div>
-                                    {row.loan_outstanding > 0 && <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Loan recovery <span className="text-xs text-gray-400">(out {fmtINR(row.loan_outstanding)})</span></span><OverrideCell value={row.override_loan_recovery} onChange={v=>updatePayslip(row.employee.id,"override_loan_recovery",v)}/></div>}
+                                    {row.loan_outstanding > 0 && <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Loan recovery <span className="text-xs text-gray-400">({fmtINR(row.loan_installment)}/mo · out {fmtINR(row.loan_outstanding)})</span></span><OverrideCell value={row.override_loan_recovery} onChange={v=>{
+                                      if (v > row.loan_installment && row.loan_installment > 0) {
+                                        const months = Math.round(v / row.loan_installment * 10) / 10;
+                                        const ok = window.confirm(`You entered ${fmtINR(v)}, which is more than the ${fmtINR(row.loan_installment)} monthly installment (≈ ${months} months at once). Recover this larger amount?`);
+                                        if (!ok) return;
+                                      }
+                                      updatePayslip(row.employee.id,"override_loan_recovery",v);
+                                    }}/></div>}
                                     <div className="flex justify-between py-0.5"><span className="text-gray-600">PF ER</span><span className="font-mono text-blue-600">{fmtINR(row.pf_employer)}</span></div>
                                     <div className="flex justify-between py-1 pt-2 border-t border-indigo-200 mt-1 font-bold"><span className="text-indigo-700">Net payable</span><span className="font-mono text-indigo-700">{fmtINR(row.net_payable)}</span></div>
                                   </div>
