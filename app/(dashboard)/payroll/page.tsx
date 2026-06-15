@@ -6,7 +6,7 @@ import {
   IndianRupee, Check, X, ChevronDown,
   Download, Eye, Loader2, AlertCircle, CheckCircle2,
   Users, TrendingUp, TrendingDown, RefreshCw,
-  Zap, Clock, Building2, Shield,
+  Zap, Clock, Building2, Shield, SlidersHorizontal, Info, Pencil,
 } from "lucide-react";
 
 // --- Supabase ---
@@ -324,24 +324,143 @@ function PayslipModal({ row, month, year, orgName, onClose }: { row:PayslipRow; 
 }
 
 // --- Override Cell ---
-function OverrideCell({ value, onChange, prefix="₹" }: { value:number; onChange:(v:number)=>void; prefix?:string }) {
-  const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(String(value));
-  useEffect(() => { setVal(String(value)); }, [value]);
+// --- Adjustments Modal: all overridable fields for one employee in one place ---
+// Each field shows its computed/expected value and a contextual message when the
+// admin's input differs (higher or lower). Replaces the old inline OverrideCell.
+function AdjustmentsModal({
+  row, workingDays, calendarDays, onApply, onClose,
+}: {
+  row: PayslipRow; workingDays: number; calendarDays: number;
+  onApply: (vals: { bonus:number; otherAllow:number; otherDed:number; lopWaived:number; loanRecovery:number }) => void;
+  onClose: () => void;
+}) {
+  const [bonus, setBonus] = useState(row.override_bonus);
+  const [otherAllow, setOtherAllow] = useState(row.override_other_allowance);
+  const [otherDed, setOtherDed] = useState(row.override_other_deductions);
+  const [lopWaived, setLopWaived] = useState(row.override_lop_waived);
+  const [loanRecovery, setLoanRecovery] = useState(row.override_loan_recovery);
 
-  if (editing) return (
-    <input autoFocus type="number" value={val}
-      onChange={e => setVal(e.target.value)}
-      onBlur={() => { onChange(Number(val)||0); setEditing(false); }}
-      onKeyDown={e => { if(e.key==="Enter"){onChange(Number(val)||0);setEditing(false);} if(e.key==="Escape")setEditing(false); }}
-      className="w-20 px-1.5 py-0.5 text-xs border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 text-right font-mono"
-    />
-  );
+  const perDay = calendarDays > 0
+    ? Math.round((row.basic_earned + row.hra_earned + row.special_allowance_earned + row.other_allowance_earned + row.lop_amount) / calendarDays)
+    : 0;
+
+  // A single editable field block: label, computed hint, input, and a diff message.
+  function Field({
+    label, value, setValue, computed, computedLabel, max, messageFor,
+  }: {
+    label: string; value: number; setValue: (n:number)=>void;
+    computed: number; computedLabel: string; max?: number;
+    messageFor: (v:number) => { tone: "info"|"warn"|"ok"; text: string } | null;
+  }) {
+    const msg = messageFor(value);
+    return (
+      <div className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="flex items-center gap-1.5">
+            <Pencil className="w-3 h-3 text-indigo-400" />
+            <span className="text-xs font-semibold text-gray-700">{label}</span>
+            <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-600 rounded text-[10px] font-bold uppercase tracking-wide">editable</span>
+          </div>
+          <span className="text-[11px] text-gray-400">{computedLabel}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400 font-mono">₹</span>
+          <input
+            type="number" value={String(value)}
+            onChange={e => { let v = Number(e.target.value)||0; if (max!=null) v = Math.min(v, max); setValue(v); }}
+            className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg font-mono text-right focus:outline-none focus:ring-2 focus:ring-indigo-100"
+          />
+          {value !== computed && (
+            <button onClick={()=>setValue(computed)} className="text-[11px] text-indigo-500 hover:text-indigo-700 font-medium whitespace-nowrap">reset</button>
+          )}
+        </div>
+        {msg && (
+          <div className={`mt-2 flex items-start gap-1.5 text-[11px] rounded-lg px-2 py-1.5 ${
+            msg.tone==="warn" ? "bg-amber-50 text-amber-700" :
+            msg.tone==="ok" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
+            <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+            <span>{msg.text}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const apply = () => onApply({ bonus, otherAllow, otherDed, lopWaived, loanRecovery });
+
   return (
-    <button onClick={() => setEditing(true)} className="text-xs font-mono text-gray-700 hover:text-indigo-600 hover:underline">
-      {prefix}{value.toLocaleString("en-IN")}
-    </button>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-indigo-500" />
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Adjustments</h2>
+              <p className="text-xs text-gray-400">{row.employee.full_name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400"/></button>
+        </div>
+
+        <div className="px-6 py-5 space-y-3">
+          <Field
+            label="Bonus" value={bonus} setValue={setBonus} computed={0} computedLabel="Default ₹0"
+            messageFor={v => v>0 ? { tone:"ok", text:`Adds ${fmtINR(v)} to gross earnings this month.` } : null}
+          />
+          <Field
+            label="Extra allowance" value={otherAllow} setValue={setOtherAllow} computed={0} computedLabel="Default ₹0"
+            messageFor={v => v>0 ? { tone:"ok", text:`${fmtINR(v)} added on top of standard allowances.` } : null}
+          />
+          <Field
+            label="Extra deduction" value={otherDed} setValue={setOtherDed} computed={0} computedLabel="Default ₹0"
+            messageFor={v => v>0 ? { tone:"warn", text:`${fmtINR(v)} additional deduction beyond statutory.` } : null}
+          />
+
+          {row.lop_days > 0 && (
+            <Field
+              label="LOP days waived (good-will)" value={lopWaived} setValue={setLopWaived}
+              computed={0} computedLabel={`${row.lop_days} LOP day(s) · ${fmtINR(perDay)}/day`} max={row.lop_days}
+              messageFor={v => {
+                if (v<=0) return { tone:"info", text:`Full LOP of ${fmtINR(row.lop_amount + row.goodwill_amount)} applies (${row.lop_days} days). Waive days to forgive as good-will.` };
+                if (v>=row.lop_days) return { tone:"ok", text:`All ${row.lop_days} LOP day(s) waived — no loss-of-pay deduction this month.` };
+                return { tone:"ok", text:`${v} of ${row.lop_days} day(s) waived (+${fmtINR(Math.round(v*perDay))} good-will); ${row.lop_days-v} day(s) still deducted.` };
+              }}
+            />
+          )}
+
+          {row.loan_outstanding > 0 && (
+            <Field
+              label="Loan / advance recovery" value={loanRecovery} setValue={setLoanRecovery}
+              computed={Math.min(row.loan_installment, row.loan_outstanding)}
+              computedLabel={`${fmtINR(row.loan_installment)}/mo · ${fmtINR(row.loan_outstanding)} outstanding`} max={row.loan_outstanding}
+              messageFor={v => {
+                const inst = Math.min(row.loan_installment, row.loan_outstanding);
+                if (v===inst) return { tone:"info", text:`Standard installment. ${fmtINR(row.loan_outstanding - v)} will remain outstanding.` };
+                if (v>inst) {
+                  const months = row.loan_installment>0 ? Math.round(v/row.loan_installment*10)/10 : 0;
+                  if (v>=row.loan_outstanding) return { tone:"warn", text:`Recovers the FULL outstanding ${fmtINR(row.loan_outstanding)} this month — loan will close.` };
+                  return { tone:"warn", text:`Above installment — recovering ≈${months} months at once. ${fmtINR(row.loan_outstanding - v)} left after.` };
+                }
+                return { tone:"info", text:`Below installment — only ${fmtINR(v)} recovered, ${fmtINR(row.loan_outstanding - v)} carries forward.` };
+              }}
+            />
+          )}
+        </div>
+
+        <div className="px-6 py-3 border-t border-gray-100 flex gap-2 sticky bottom-0 bg-white">
+          <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+          <button onClick={apply} className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 flex items-center justify-center gap-2">
+            <Check className="w-4 h-4"/>Apply adjustments
+          </button>
+        </div>
+      </div>
+    </div>
   );
+}
+
+// Small read-only value display for the expanded row (replaces editable cells there)
+function ValDisplay({ value, prefix="₹", muted=false }: { value:number; prefix?:string; muted?:boolean }) {
+  return <span className={`text-xs font-mono ${muted?"text-gray-400":"text-gray-700"}`}>{value>0?`${prefix}${value.toLocaleString("en-IN")}`:"—"}</span>;
 }
 
 // --- Main Page ---
@@ -362,6 +481,7 @@ export default function PayrollPage() {
   const [processing, setProcessing] = useState(false);
   const [expandedRow, setExpandedRow] = useState<string|null>(null);
   const [payslipModal, setPayslipModal] = useState<PayslipRow|null>(null);
+  const [adjustModal, setAdjustModal] = useState<PayslipRow|null>(null);
   const [toast, setToast] = useState<{message:string;type:"success"|"error"}|null>(null);
   const [unmarkedPresent, setUnmarkedPresent] = useState(true); // safety: unmarked working days = present
 
@@ -474,18 +594,16 @@ export default function PayrollPage() {
     return () => window.removeEventListener("orgSwitch", h);
   }, [fetchData]);
 
-  const updatePayslip = (empId: string, field: string, value: number) => {
+  // Apply all overrides from the Adjustments modal in one recompute
+  const applyAdjustments = (empId: string, vals: { bonus:number; otherAllow:number; otherDed:number; lopWaived:number; loanRecovery:number }) => {
     setPayslips(prev => prev.map(row => {
       if (row.employee.id !== empId) return row;
-      const dp = field==="override_days_present" ? value : row.override_days_present;
-      const bn = field==="override_bonus" ? value : row.override_bonus;
-      const od = field==="override_other_deductions" ? value : row.override_other_deductions;
-      const oa = field==="override_other_allowance" ? value : row.override_other_allowance;
-      const wv = field==="override_lop_waived" ? value : row.override_lop_waived;
-      const lr = field==="override_loan_recovery" ? Math.min(value, row.loan_outstanding) : row.override_loan_recovery;
-      return calcPayslip(row.employee, dp, row.leave_days, workingDays, calendarDays, selectedMonth, bn, od, oa, wv,
-        lr, row.loan_installment, row.loan_outstanding, row.loan_lines);
+      const lr = Math.min(vals.loanRecovery, row.loan_outstanding);
+      const wv = Math.min(vals.lopWaived, row.lop_days);
+      return calcPayslip(row.employee, row.override_days_present, row.leave_days, workingDays, calendarDays, selectedMonth,
+        vals.bonus, vals.otherDed, vals.otherAllow, wv, lr, row.loan_installment, row.loan_outstanding, row.loan_lines);
     }));
+    setAdjustModal(null);
   };
 
   const processPayroll = async () => {
@@ -793,8 +911,8 @@ export default function PayrollPage() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-3 py-3 text-right" onClick={e=>e.stopPropagation()}>
-                              <OverrideCell value={row.override_days_present} prefix="" onChange={v=>updatePayslip(row.employee.id,"override_days_present",Math.min(v,workingDays))}/>
+                            <td className="px-3 py-3 text-right">
+                              <span className="text-sm font-mono text-gray-700">{row.days_present}</span>
                               <span className="text-xs text-gray-400">/{workingDays}</span>
                             </td>
                             <td className="px-3 py-3 text-right text-xs font-mono text-blue-600">{row.leave_days>0?row.leave_days:"-"}</td>
@@ -810,9 +928,16 @@ export default function PayrollPage() {
                             <td className="px-3 py-3 text-right text-xs font-mono text-orange-500">{row.tds_amount>0?`-${fmtINR(row.tds_amount)}`:"-"}</td>
                             <td className="px-3 py-3 text-right text-sm font-mono font-bold text-indigo-700">{fmtINR(row.net_payable)}</td>
                             <td className="px-3 py-3 text-right" onClick={e=>e.stopPropagation()}>
-                              <button onClick={()=>setPayslipModal(row)} className="p-1.5 hover:bg-indigo-50 rounded-lg transition-colors" title="View payslip">
-                                <Eye className="w-3.5 h-3.5 text-indigo-500"/>
-                              </button>
+                              <div className="flex items-center gap-1 justify-end">
+                                {existingRun?.status!=="paid" && (
+                                  <button onClick={()=>setAdjustModal(row)} className="p-1.5 hover:bg-indigo-50 rounded-lg transition-colors" title="Adjust (bonus, LOP waive, loan)">
+                                    <SlidersHorizontal className="w-3.5 h-3.5 text-gray-500"/>
+                                  </button>
+                                )}
+                                <button onClick={()=>setPayslipModal(row)} className="p-1.5 hover:bg-indigo-50 rounded-lg transition-colors" title="View payslip">
+                                  <Eye className="w-3.5 h-3.5 text-indigo-500"/>
+                                </button>
+                              </div>
                             </td>
                           </tr>
 
@@ -838,23 +963,23 @@ export default function PayrollPage() {
                                     <div className="flex justify-between py-0.5"><span className="text-gray-600">Present</span><span className="font-mono text-gray-800">{row.days_present}</span></div>
                                     <div className="flex justify-between py-0.5"><span className="text-gray-600">Approved leave</span><span className="font-mono text-blue-600">{row.leave_days}</span></div>
                                     <div className="flex justify-between py-0.5"><span className="text-gray-600">LOP days</span><span className="font-mono text-red-500">{row.lop_days}</span></div>
-                                    <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Waive (good-will)</span><OverrideCell value={row.override_lop_waived} prefix="" onChange={v=>updatePayslip(row.employee.id,"override_lop_waived",v)}/></div>
+                                    <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Waived (good-will)</span><ValDisplay value={row.lop_days_waived} prefix="" muted={row.lop_days_waived===0}/></div>
                                     {row.lop_amount>0 && <div className="flex justify-between py-0.5"><span className="text-red-500">LOP deduction</span><span className="font-mono text-red-500">-{fmtINR(row.lop_amount)}</span></div>}
                                     {row.goodwill_amount>0 && <div className="flex justify-between py-0.5"><span className="text-emerald-600">Good-will add-back</span><span className="font-mono text-emerald-600">+{fmtINR(row.goodwill_amount)}</span></div>}
                                   </div>
                                   <div>
-                                    <p className="font-bold text-gray-500 uppercase tracking-wider mb-2">Adjustments &amp; employer</p>
-                                    <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Bonus</span><OverrideCell value={row.override_bonus} onChange={v=>updatePayslip(row.employee.id,"override_bonus",v)}/></div>
-                                    <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Extra allowance</span><OverrideCell value={row.override_other_allowance} onChange={v=>updatePayslip(row.employee.id,"override_other_allowance",v)}/></div>
-                                    <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Extra deduction</span><OverrideCell value={row.override_other_deductions} onChange={v=>updatePayslip(row.employee.id,"override_other_deductions",v)}/></div>
-                                    {row.loan_outstanding > 0 && <div className="flex justify-between py-0.5 items-center"><span className="text-gray-600">Loan recovery <span className="text-xs text-gray-400">({fmtINR(row.loan_installment)}/mo · out {fmtINR(row.loan_outstanding)})</span></span><OverrideCell value={row.override_loan_recovery} onChange={v=>{
-                                      if (v > row.loan_installment && row.loan_installment > 0) {
-                                        const months = Math.round(v / row.loan_installment * 10) / 10;
-                                        const ok = window.confirm(`You entered ${fmtINR(v)}, which is more than the ${fmtINR(row.loan_installment)} monthly installment (≈ ${months} months at once). Recover this larger amount?`);
-                                        if (!ok) return;
-                                      }
-                                      updatePayslip(row.employee.id,"override_loan_recovery",v);
-                                    }}/></div>}
+                                    <div className="flex items-center justify-between mb-2">
+                                      <p className="font-bold text-gray-500 uppercase tracking-wider">Adjustments &amp; employer</p>
+                                      {existingRun?.status!=="paid" && (
+                                        <button onClick={()=>setAdjustModal(row)} className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700">
+                                          <SlidersHorizontal className="w-3 h-3"/>Edit
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">Bonus</span><ValDisplay value={row.bonus} muted={row.bonus===0}/></div>
+                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">Extra allowance</span><ValDisplay value={row.override_other_allowance} muted={row.override_other_allowance===0}/></div>
+                                    <div className="flex justify-between py-0.5"><span className="text-gray-600">Extra deduction</span><ValDisplay value={row.override_other_deductions} muted={row.override_other_deductions===0}/></div>
+                                    {row.loan_outstanding > 0 && <div className="flex justify-between py-0.5"><span className="text-gray-600">Loan recovery <span className="text-xs text-gray-400">({fmtINR(row.loan_installment)}/mo)</span></span><ValDisplay value={row.loan_recovery} muted={row.loan_recovery===0}/></div>}
                                     <div className="flex justify-between py-0.5"><span className="text-gray-600">PF ER</span><span className="font-mono text-blue-600">{fmtINR(row.pf_employer)}</span></div>
                                     <div className="flex justify-between py-1 pt-2 border-t border-indigo-200 mt-1 font-bold"><span className="text-indigo-700">Net payable</span><span className="font-mono text-indigo-700">{fmtINR(row.net_payable)}</span></div>
                                   </div>
@@ -895,6 +1020,7 @@ export default function PayrollPage() {
       )}
 
       {payslipModal && <PayslipModal row={payslipModal} month={selectedMonth} year={selectedYear} orgName={orgName} onClose={()=>setPayslipModal(null)}/>}
+      {adjustModal && <AdjustmentsModal row={adjustModal} workingDays={workingDays} calendarDays={calendarDays} onApply={(vals)=>applyAdjustments(adjustModal.employee.id, vals)} onClose={()=>setAdjustModal(null)}/>}
       {toast && <Toast message={toast.message} type={toast.type} onClose={()=>setToast(null)}/>}
     </div>
   );
