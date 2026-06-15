@@ -366,8 +366,8 @@ function AdjustmentsModal({
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400 font-mono">₹</span>
           <input
-            type="number" value={String(value)}
-            onChange={e => { let v = Number(e.target.value)||0; if (max!=null) v = Math.min(v, max); setValue(v); }}
+            type="text" inputMode="numeric" value={String(value)}
+            onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, ""); let v = Number(digits)||0; if (max!=null) v = Math.min(v, max); setValue(v); }}
             className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg font-mono text-right focus:outline-none focus:ring-2 focus:ring-indigo-100"
           />
           {value !== computed && (
