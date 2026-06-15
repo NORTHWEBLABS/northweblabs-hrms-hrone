@@ -9,13 +9,13 @@ import {
   BarChart3, PieChart, TrendingUp,
   Loader2, RefreshCw, Users, IndianRupee, ShoppingCart,
   Receipt, Clock, FileText, ArrowUpRight, ArrowDownRight,
-  X, Layers,
+  Layers, Download, Wallet,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  LineChart, Line, AreaChart, Area, PieChart as RePieChart, Pie, 
-  Legend, ComposedChart,
+  AreaChart, Area, PieChart as RePieChart, Pie, Cell, Legend,
 } from "recharts";
+import { headLabel, type Head } from "@/components/HeadSelect";
 
 function useSB() { return useMemo(() => createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!), []); }
 async function getOrgId(sb: any): Promise<string> {
@@ -27,11 +27,14 @@ async function getOrgId(sb: any): Promise<string> {
 }
 
 const fmtINR = (n: number) => "₹" + Math.abs(Math.round(n)).toLocaleString("en-IN");
+const fmtD = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
 const COLORS = ["#6366F1","#22C55E","#F59E0B","#EF4444","#8B5CF6","#06B6D4","#EC4899","#14B8A6"];
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 type DateRange = "today" | "this_week" | "this_month" | "this_quarter" | "this_year" | "last_month" | "last_quarter" | "custom";
-type Module = "overview" | "sales" | "expenses" | "employees" | "invoices" | "cashflow";
+type Module = "overview" | "sales" | "expenses" | "reimbursements" | "employees" | "invoices" | "cashflow";
+
+const REIMB_STATUS: Record<string, string> = { pending: "bg-amber-100 text-amber-700", approved: "bg-emerald-100 text-emerald-700", rejected: "bg-red-100 text-red-600", reimbursed: "bg-blue-100 text-blue-700" };
 
 function getDateRange(range: DateRange): { from: string; to: string } {
   const now = new Date(); const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
@@ -87,6 +90,11 @@ export default function ReportsPage() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [cashflow, setCashflow] = useState<any[]>([]);
   const [expCategories, setExpCategories] = useState<any[]>([]);
+  // Reimbursement audit lookups
+  const [heads, setHeads] = useState<Head[]>([]);
+  const [empMap, setEmpMap] = useState<Record<string, string>>({});   // employee_id -> name
+  const [userMap, setUserMap] = useState<Record<string, string>>({}); // user_id -> name
+  const [reimbStatus, setReimbStatus] = useState("");
 
   const { from, to } = useMemo(() => getDateRange(dateRange), [dateRange]);
 
@@ -95,19 +103,31 @@ export default function ReportsPage() {
     const oid = await getOrgId(sb);
     if (!oid) { setLoading(false); return; }
     const yesterday = new Date(new Date(from).getTime() - 86400000).toISOString().split("T")[0];
-    const [r1, r2, r3, r4, r5, r6, r7, r8] = await Promise.all([
+    const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10] = await Promise.all([
       sb.from("store_orders").select("*").eq("org_id", oid).gte("created_at", from + "T00:00").lte("created_at", to + "T23:59").order("created_at"),
       sb.from("expenses").select("*").eq("org_id", oid).gte("date", from).lte("date", to),
-      sb.from("employees").select("id, full_name, department, designation, status, date_of_joining, gender, gross_salary").eq("org_id", oid),
+      sb.from("employees").select("id, full_name, email, department, designation, status, date_of_joining, gender, gross_salary").eq("org_id", oid),
       sb.from("invoices").select("*").eq("org_id", oid).gte("invoice_date", from).lte("invoice_date", to),
       sb.from("cashflow_entries").select("*").eq("org_id", oid).gte("date", from).lte("date", to),
       sb.from("attendance").select("*").eq("org_id", oid).gte("date", from).lte("date", to),
       sb.from("expense_categories").select("*").eq("org_id", oid),
       sb.from("store_orders").select("total, created_at, payment_status").eq("org_id", oid).gte("created_at", yesterday + "T00:00").lte("created_at", yesterday + "T23:59"),
+      sb.from("expense_heads").select("id, name, parent_id").eq("org_id", oid),
+      sb.from("users").select("id, full_name, email").eq("org_id", oid),
     ]);
     setOrders(r1.data || []); setYesterdayOrders(r8.data || []); setExpenses(r2.data || []);
     setEmployees(r3.data || []); setInvoices(r4.data || []); setCashflow(r5.data || []);
-    setExpCategories(r7.data || []); setLoading(false);
+    setExpCategories(r7.data || []); setHeads((r9.data || []) as Head[]);
+
+    // Build name maps for audit trail resolution
+    const em: Record<string, string> = {};
+    (r3.data || []).forEach((e: any) => { em[e.id] = e.full_name || e.email || "—"; });
+    setEmpMap(em);
+    const um: Record<string, string> = {};
+    (r10.data || []).forEach((u: any) => { um[u.id] = u.full_name || u.email || "—"; });
+    setUserMap(um);
+
+    setLoading(false);
   }, [sb, from, to]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -120,6 +140,55 @@ export default function ReportsPage() {
   const paidInv = invoices.filter((i: any) => i.status === "paid").reduce((s: number, i: any) => s + (i.total_amount || 0), 0);
   const activeEmps = employees.filter((e: any) => e.status === "active").length;
 
+  // ── Reimbursement audit rows (full lifecycle) ──
+  const reimbRows = useMemo(() => {
+    return expenses
+      .filter((e: any) => !reimbStatus || e.status === reimbStatus)
+      .map((e: any) => ({
+        id: e.id,
+        claim: e.title,
+        employee: e.employee_id ? (empMap[e.employee_id] || "—") : "Org expense",
+        head: e.head_id ? headLabel(heads, e.head_id) : "—",
+        category: expCategories.find((c: any) => c.id === e.category_id)?.name || "—",
+        amount: e.amount || 0,
+        raisedBy: e.employee_id ? (empMap[e.employee_id] || "—") : "—",
+        approvedBy: e.approved_by ? (userMap[e.approved_by] || "—") : "—",
+        settledBy: e.paid_by ? (userMap[e.paid_by] || "—") : "—",
+        mode: e.paid_method || "—",
+        txn: e.paid_reference || "—",
+        claimDate: e.date,
+        approvedAt: e.approved_at,
+        paidAt: e.paid_at,
+        status: e.status,
+      }))
+      .sort((a: any, b: any) => new Date(b.claimDate).getTime() - new Date(a.claimDate).getTime());
+  }, [expenses, reimbStatus, empMap, userMap, heads, expCategories]);
+
+  const reimbTotals = useMemo(() => {
+    const all = reimbRows;
+    return {
+      count: all.length,
+      total: all.reduce((s, r) => s + r.amount, 0),
+      reimbursed: all.filter(r => r.status === "reimbursed").reduce((s, r) => s + r.amount, 0),
+      pending: all.filter(r => r.status === "pending").length,
+    };
+  }, [reimbRows]);
+
+  const exportReimbCSV = () => {
+    const headers = ["Claim", "Employee", "Head", "Category", "Amount", "Raised by", "Approved by", "Settled by", "Mode", "Txn ref", "Claim date", "Approved at", "Paid at", "Status"];
+    const escape = (v: any) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [headers.join(",")];
+    reimbRows.forEach(r => {
+      lines.push([r.claim, r.employee, r.head, r.category, r.amount, r.raisedBy, r.approvedBy, r.settledBy, r.mode, r.txn, r.claimDate, r.approvedAt ? new Date(r.approvedAt).toISOString() : "", r.paidAt ? new Date(r.paidAt).toISOString() : "", r.status].map(escape).join(","));
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `reimbursement-audit-${from}-to-${to}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // Daily revenue
   const dailyRev = useMemo(() => {
     const map: Record<string, number> = {};
@@ -128,7 +197,6 @@ export default function ReportsPage() {
     return Object.entries(map).map(([k, v]) => ({ date: new Date(k).getDate().toString(), revenue: v }));
   }, [paid, from, to]);
 
-  // Monthly rev vs exp
   const monthlyData = useMemo(() => {
     const map = MONTHS.map(m => ({ month: m, revenue: 0, expenses: 0 }));
     paid.forEach((o: any) => { map[new Date(o.created_at).getMonth()].revenue += o.total || 0; });
@@ -136,21 +204,18 @@ export default function ReportsPage() {
     return map;
   }, [paid, expenses]);
 
-  // Expense by category
   const expByCat = useMemo(() => {
     const map: Record<string, number> = {};
     expenses.forEach((e: any) => { const cat = expCategories.find((c: any) => c.id === e.category_id); map[cat?.name || "Other"] = (map[cat?.name || "Other"] || 0) + (e.amount || 0); });
     return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([name, value], i) => ({ name, value, fill: COLORS[i % COLORS.length] }));
   }, [expenses, expCategories]);
 
-  // Department headcount
   const deptData = useMemo(() => {
     const map: Record<string, number> = {};
     employees.filter((e: any) => e.status === "active").forEach((e: any) => { map[e.department || "Unassigned"] = (map[e.department || "Unassigned"] || 0) + 1; });
     return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([name, count], i) => ({ name, count, fill: COLORS[i % COLORS.length] }));
   }, [employees]);
 
-  // Payment + channel
   const paySplit = useMemo(() => {
     const map: Record<string, number> = {};
     paid.forEach((o: any) => { map[o.payment_method || "other"] = (map[o.payment_method || "other"] || 0) + (o.total || 0); });
@@ -163,13 +228,11 @@ export default function ReportsPage() {
     return Object.entries(map).map(([name, value], i) => ({ name, value, fill: COLORS[i % COLORS.length] }));
   }, [paid]);
 
-  // Today vs yesterday hourly (Shopify style)
   const hourlyComparison = useMemo(() => {
     const now = new Date(); const curHour = now.getHours();
     const hours = Array.from({ length: 24 }, (_, i) => {
       const label = i === 0 ? "12a" : i < 12 ? `${i}a` : i === 12 ? "12p" : `${i - 12}p`;
       let todayCum = 0; let yesterdayCum = 0;
-      // cumulative up to this hour
       for (let h = 0; h <= i; h++) {
         todayCum += paid.filter((o: any) => new Date(o.created_at).toDateString() === now.toDateString() && new Date(o.created_at).getHours() === h).reduce((s: number, o: any) => s + (o.total || 0), 0);
         const yPaid = yesterdayOrders.filter((o: any) => o.payment_status === "paid");
@@ -183,14 +246,12 @@ export default function ReportsPage() {
     return { hours, todayTotal, diff };
   }, [paid, yesterdayOrders]);
 
-  // Cashflow
   const cfData = useMemo(() => {
     const map: Record<string, { day: string; inflow: number; outflow: number }> = {};
     cashflow.forEach((c: any) => { const k = new Date(c.date).getDate().toString(); if (!map[k]) map[k] = { day: k, inflow: 0, outflow: 0 }; if (c.type === "inflow") map[k].inflow += c.amount || 0; else map[k].outflow += c.amount || 0; });
     return Object.values(map).sort((a, b) => Number(a.day) - Number(b.day));
   }, [cashflow]);
 
-  // Salary distribution
   const salaryDist = useMemo(() => {
     const ranges = [{ label: "<20K", min: 0, max: 20000 }, { label: "20-40K", min: 20000, max: 40000 }, { label: "40-60K", min: 40000, max: 60000 }, { label: "60-80K", min: 60000, max: 80000 }, { label: "80K+", min: 80000, max: Infinity }];
     return ranges.map(r => ({ range: r.label, count: employees.filter((e: any) => (e.gross_salary || 0) >= r.min && (e.gross_salary || 0) < r.max).length }));
@@ -200,6 +261,7 @@ export default function ReportsPage() {
     { id: "overview", label: "Overview", icon: <Layers className="w-4 h-4" /> },
     { id: "sales", label: "Sales", icon: <ShoppingCart className="w-4 h-4" /> },
     { id: "expenses", label: "Expenses", icon: <Receipt className="w-4 h-4" /> },
+    { id: "reimbursements", label: "Reimbursements", icon: <Wallet className="w-4 h-4" /> },
     { id: "employees", label: "People", icon: <Users className="w-4 h-4" /> },
     { id: "invoices", label: "Invoices", icon: <FileText className="w-4 h-4" /> },
     { id: "cashflow", label: "Cashflow", icon: <TrendingUp className="w-4 h-4" /> },
@@ -213,7 +275,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl flex-wrap">
           {MODULES.map(m => <button key={m.id} onClick={() => setModule(m.id)} className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition ${module === m.id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>{m.icon}{m.label}</button>)}
         </div>
         <div className="flex gap-1.5 flex-wrap">
@@ -236,7 +298,6 @@ export default function ReportsPage() {
               <StatCard label="Team" value={activeEmps.toString()} sub={`${employees.length} total`} icon={<Users className="w-5 h-5 text-violet-500" />} />
             </div>
 
-            {/* Today vs Yesterday */}
             <ChartCard title="Today vs yesterday">
               <div className="flex items-start justify-between mb-2">
                 <div><p className="text-2xl font-bold text-gray-900">{fmtINR(hourlyComparison.todayTotal)}</p></div>
@@ -333,6 +394,68 @@ export default function ReportsPage() {
             </div>
           </>)}
 
+          {/* REIMBURSEMENTS — full lifecycle audit */}
+          {module === "reimbursements" && (<>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard label="Claims" value={reimbTotals.count.toString()} sub="In range" icon={<Wallet className="w-5 h-5 text-indigo-500" />} />
+              <StatCard label="Total value" value={fmtINR(reimbTotals.total)} icon={<IndianRupee className="w-5 h-5 text-violet-500" />} />
+              <StatCard label="Reimbursed" value={fmtINR(reimbTotals.reimbursed)} icon={<TrendingUp className="w-5 h-5 text-emerald-500" />} />
+              <StatCard label="Pending" value={reimbTotals.pending.toString()} icon={<Clock className="w-5 h-5 text-amber-500" />} />
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-wrap gap-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-gray-900">Reimbursement audit trail</h3>
+                  <div className="flex gap-1.5">
+                    {["", "pending", "approved", "reimbursed", "rejected"].map(s => (
+                      <button key={s} onClick={() => setReimbStatus(s)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition ${reimbStatus === s ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-600 border-gray-200"}`}>
+                        {s || "All"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={exportReimbCSV} disabled={reimbRows.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-40">
+                  <Download className="w-3.5 h-3.5" />Export CSV
+                </button>
+              </div>
+
+              {reimbRows.length === 0 ? (
+                <div className="text-center py-16"><Wallet className="w-10 h-10 text-gray-200 mx-auto mb-3" /><p className="text-sm text-gray-500">No reimbursements in this range</p></div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-gray-50 border-b border-gray-200">
+                      {["Claim", "Employee", "Head", "Amount", "Raised by", "Approved by", "Settled by", "Mode", "Txn ref", "Claim date", "Status"].map(h => (
+                        <th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3 whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {reimbRows.map(r => (
+                        <tr key={r.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{r.claim}</td>
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.employee}</td>
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.head}</td>
+                          <td className="px-4 py-3 font-mono font-bold text-gray-900 whitespace-nowrap">{fmtINR(r.amount)}</td>
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.raisedBy}</td>
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.approvedBy}</td>
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.settledBy}</td>
+                          <td className="px-4 py-3 text-gray-600 capitalize whitespace-nowrap">{r.mode.replace("_", " ")}</td>
+                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{r.txn}</td>
+                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtD(r.claimDate)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${REIMB_STATUS[r.status] || "bg-gray-100 text-gray-600"}`}>{r.status}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {reimbRows.length > 0 && <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">{reimbRows.length} claim{reimbRows.length !== 1 ? "s" : ""} · Total {fmtINR(reimbTotals.total)}</div>}
+            </div>
+          </>)}
+
           {/* EMPLOYEES */}
           {module === "employees" && (<>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -363,7 +486,7 @@ export default function ReportsPage() {
               <StatCard label="Collection" value={`${totalInv > 0 ? Math.round((paidInv / totalInv) * 100) : 0}%`} icon={<TrendingUp className="w-5 h-5 text-violet-500" />} />
             </div>
             <ChartCard title="Invoice status">
-              <ResponsiveContainer width="100%" height={250}><RePieChart><Pie data={["draft","sent","paid","overdue","cancelled"].map((s, i) => ({ name: s, value: invoices.filter((inv: any) => inv.status === s).reduce((sum: number, inv: any) => sum + (inv.total_amount || 0), 0) })).filter(d => d.value > 0)} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={3} label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: 11 }}>{["draft","sent","paid","overdue","cancelled"].map((_, i) => <Cell key={i} fill={COLORS[i]} />)}</Pie><Tooltip content={<CustomTooltip />} /></RePieChart></ResponsiveContainer>
+              <ResponsiveContainer width="100%" height={250}><RePieChart><Pie data={["draft","sent","paid","overdue","cancelled"].map((s) => ({ name: s, value: invoices.filter((inv: any) => inv.status === s).reduce((sum: number, inv: any) => sum + (inv.total_amount || 0), 0) })).filter(d => d.value > 0)} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={3} label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: 11 }}>{["draft","sent","paid","overdue","cancelled"].map((_, i) => <Cell key={i} fill={COLORS[i]} />)}</Pie><Tooltip content={<CustomTooltip />} /></RePieChart></ResponsiveContainer>
             </ChartCard>
           </>)}
 
