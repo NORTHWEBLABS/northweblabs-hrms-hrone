@@ -33,6 +33,7 @@ interface Employee {
   special_allowance: number; other_allowance: number; gross_salary: number;
   pf_applicable: boolean; esic_applicable: boolean; pt_applicable: boolean;
   status: string; whatsapp_registered: boolean; created_at: string;
+  role: string | null;
   reporting_manager_id: string | null; approval_status: string | null;
   onboarding_completed: boolean | null; onboarding_link: string | null;
   approved_by: string | null; approved_at: string | null;
@@ -65,6 +66,24 @@ const EMPTY_FORM: FormData = {
   bank_account: "", bank_ifsc: "", bank_name: "", bank_branch: "",
   pf_applicable: true, esic_applicable: false, pt_applicable: true,
 };
+
+function formFromEmployee(e: Employee): FormData {
+  return {
+    first_name: e.first_name || "", middle_name: e.middle_name || "", last_name: e.last_name || "",
+    phone: e.phone || "", email: e.email || "", date_of_birth: e.date_of_birth || "", gender: e.gender || "",
+    department: e.department || "", department_id: e.department_id || "", designation: e.designation || "",
+    date_of_joining: e.date_of_joining || "", employee_code: e.employee_code || "", reporting_manager_id: e.reporting_manager_id || "",
+    role: e.role || "employee",
+    salary_type: e.salary_type || "fixed",
+    basic_salary: e.basic_salary ? String(e.basic_salary) : "",
+    hra: e.hra ? String(e.hra) : "",
+    special_allowance: e.special_allowance ? String(e.special_allowance) : "",
+    other_allowance: e.other_allowance ? String(e.other_allowance) : "",
+    pan: e.pan || "", aadhaar_last4: e.aadhaar_last4 || "", uan: e.uan || "",
+    bank_account: e.bank_account || "", bank_ifsc: e.bank_ifsc || "", bank_name: e.bank_name || "", bank_branch: "",
+    pf_applicable: e.pf_applicable, esic_applicable: e.esic_applicable, pt_applicable: e.pt_applicable,
+  };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtINR = (n: number) => "₹" + n.toLocaleString("en-IN");
@@ -153,10 +172,11 @@ function CreateDeptModal({ orgId, onCreated, onClose }: { orgId: string; onCreat
 }
 
 // ── Add Employee Drawer ───────────────────────────────────────────────────────
-function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employees }: {
-  open: boolean; onClose: () => void; onSaved: (emp: Employee) => void;
-  orgId: string; departments: Department[]; employees: Employee[];
+function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employees, editing }: {
+  open: boolean; onClose: () => void; onSaved: (emp: Employee, isEdit: boolean) => void;
+  orgId: string; departments: Department[]; employees: Employee[]; editing: Employee | null;
 }) {
+  const isEdit = !!editing;
   const sb = useSupabase();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
@@ -168,6 +188,12 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
   const [localDepts, setLocalDepts] = useState<Department[]>(departments);
 
   useEffect(() => { setLocalDepts(departments); }, [departments]);
+
+  useEffect(() => {
+    if (!open) return;
+    setForm(editing ? formFromEmployee(editing) : EMPTY_FORM);
+    setStep(1); setErrors({}); setIfscVerified(false);
+  }, [open, editing]);
 
   const set = (key: keyof FormData, value: string | boolean) => { setForm(p => ({ ...p, [key]: value })); setErrors(p => { const n = { ...p }; delete n[key]; return n; }); };
 
@@ -217,7 +243,41 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
 
       const fullName = [form.first_name, form.middle_name, form.last_name].filter(Boolean).join(" ").trim();
       const phone = form.phone.replace(/\D/g, "").replace(/^(91|0)/, "");
-      const onboardLink = `${window.location.origin}/onboard/self?org=${oid}&email=${encodeURIComponent(form.email)}`;
+      const emailNorm = form.email.toLowerCase().trim();
+      const onboardLink = `${window.location.origin}/onboard/self?org=${oid}&email=${encodeURIComponent(emailNorm)}`;
+
+      // ── EDIT MODE: update only — no user insert, no onboarding emails, no approval reset ──
+      if (isEdit && editing) {
+        let deptNameE = form.department;
+        if (form.department_id) { const d = localDepts.find(x => x.id === form.department_id); if (d) deptNameE = d.name; }
+        const editPayload: Record<string, any> = {
+          first_name: form.first_name.trim(), middle_name: form.middle_name.trim() || null, last_name: form.last_name.trim(),
+          full_name: fullName, phone, email: emailNorm || null,
+          department: deptNameE || null, department_id: form.department_id || null,
+          designation: form.designation.trim(), date_of_joining: form.date_of_joining,
+          date_of_birth: form.date_of_birth || null, gender: form.gender || null,
+          reporting_manager_id: form.reporting_manager_id || null, role: form.role || "employee",
+          salary_type: form.salary_type, basic_salary: Number(form.basic_salary),
+          hra: Number(form.hra || 0), special_allowance: Number(form.special_allowance || 0),
+          other_allowance: Number(form.other_allowance || 0), gross_salary: computedGross,
+          pan: form.pan ? form.pan.toUpperCase() : null, aadhaar_last4: form.aadhaar_last4 || null,
+          uan: form.uan || null, bank_account: form.bank_account || null,
+          bank_ifsc: form.bank_ifsc ? form.bank_ifsc.toUpperCase() : null, bank_name: form.bank_name || null,
+          pf_applicable: form.pf_applicable, esic_applicable: form.esic_applicable, pt_applicable: form.pt_applicable,
+        };
+        const { data: upd, error: ue } = await sb.from("employees").update(editPayload).eq("id", editing.id).select().single();
+        if (ue) throw ue;
+        // Sync users row name/role/email via original email bridge (handles case fix too)
+        if (editing.email) {
+          try {
+            await sb.from("users").update({ full_name: fullName, role: form.role || "employee", email: emailNorm || editing.email })
+              .eq("email", editing.email).eq("org_id", oid);
+          } catch {}
+        }
+        onSaved(upd as Employee, true);
+        onClose();
+        return;
+      }
 
       // Auto-generate employee code
       let code = form.employee_code.trim();
@@ -236,7 +296,7 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
       const payload: Record<string, any> = {
         org_id: oid, employee_code: code,
         first_name: form.first_name.trim(), middle_name: form.middle_name.trim() || null, last_name: form.last_name.trim(),
-        full_name: fullName, phone, email: form.email || null,
+        full_name: fullName, phone, email: emailNorm || null,
         department: deptName || null, department_id: form.department_id || null,
         designation: form.designation.trim(), date_of_joining: form.date_of_joining,
         date_of_birth: form.date_of_birth || null, gender: form.gender || null,
@@ -259,7 +319,7 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
       // Create user record for employee login (ignore errors — may already exist)
       try {
         await sb.from("users").insert({
-          email: form.email?.toLowerCase().trim(), full_name: fullName,
+          email: emailNorm || null, full_name: fullName,
           role: form.role || "employee", org_id: oid, phone,
         });
       } catch {}
@@ -297,7 +357,7 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
         }
       } catch {}
 
-      onSaved(data as Employee);
+      onSaved(data as Employee, false);
       setForm(EMPTY_FORM); setStep(1); setIfscVerified(false); onClose();
     } catch (err: any) {
       setErrors({ first_name: err.message || "Failed to save" });
@@ -318,7 +378,7 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center"><UserCheck className="w-4 h-4 text-indigo-600" /></div>
-            <div><h2 className="text-sm font-bold text-gray-900">Onboard new employee</h2><p className="text-xs text-gray-400">Step {step}/3 — {steps[step - 1]}</p></div>
+            <div><h2 className="text-sm font-bold text-gray-900">{isEdit ? "Edit employee" : "Onboard new employee"}</h2><p className="text-xs text-gray-400">Step {step}/3 — {steps[step - 1]}</p></div>
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => setFullscreen(p => !p)} className="p-2 hover:bg-gray-100 rounded-lg">{fullscreen ? <Minimize2 className="w-4 h-4 text-gray-500" /> : <Maximize2 className="w-4 h-4 text-gray-500" />}</button>
@@ -398,13 +458,13 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
                   <Field label="Date of joining" required>
                     <input className={`${inputCls} ${errors.date_of_joining ? "border-red-300" : ""}`} type="date" value={form.date_of_joining} onChange={e => set("date_of_joining", e.target.value)} />
                   </Field>
-                  <Field label="Employee code" hint="Auto if blank">
-                    <input className={inputCls} placeholder="Auto" value={form.employee_code} onChange={e => set("employee_code", e.target.value)} />
+                  <Field label="Employee code" hint={isEdit ? "Cannot be changed" : "Auto if blank"}>
+                    <input className={`${inputCls} ${isEdit ? "bg-gray-50 text-gray-400 cursor-not-allowed" : ""}`} placeholder="Auto" value={form.employee_code} onChange={e => set("employee_code", e.target.value)} disabled={isEdit} />
                   </Field>
                   <Field label="Reporting manager">
                     <select className={selectCls} value={form.reporting_manager_id} onChange={e => set("reporting_manager_id", e.target.value)}>
                       <option value="">None</option>
-                      {employees.filter(e => e.status === "active").map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                      {employees.filter(e => e.status === "active" && e.id !== editing?.id).map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
                     </select>
                   </Field>
                 </div>
@@ -509,7 +569,7 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
               <button onClick={next} className="flex-1 py-2.5 bg-[#0f172a] text-white text-sm font-semibold rounded-xl hover:bg-[#1e293b] flex items-center justify-center gap-2">Continue →</button>
             ) : (
               <button onClick={handleSave} disabled={saving} className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</> : <><UserCheck className="w-4 h-4" />Complete onboarding</>}
+                {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</> : <><UserCheck className="w-4 h-4" />{isEdit ? "Save changes" : "Complete onboarding"}</>}
               </button>
             )}
           </div>
@@ -520,9 +580,9 @@ function AddEmployeeDrawer({ open, onClose, onSaved, orgId, departments, employe
 }
 
 // ── Employee Detail Drawer with Approval + Onboarding Link ────────────────────
-function EmployeeDetailDrawer({ employee, open, onClose, onUpdate, employees }: {
+function EmployeeDetailDrawer({ employee, open, onClose, onUpdate, onEdit, employees }: {
   employee: Employee | null; open: boolean; onClose: () => void;
-  onUpdate: (emp: Employee) => void; employees: Employee[];
+  onUpdate: (emp: Employee) => void; onEdit: (emp: Employee) => void; employees: Employee[];
 }) {
   const sb = useSupabase();
   const [confirming, setConfirming] = useState<"approve" | "reject" | "delete" | null>(null);
@@ -691,7 +751,7 @@ function EmployeeDetailDrawer({ employee, open, onClose, onUpdate, employees }: 
         </div>
 
         <div className="px-6 py-4 border-t border-gray-100 flex gap-2">
-          <button className="flex-1 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 flex items-center justify-center gap-1.5"><Edit2 className="w-3.5 h-3.5" />Edit</button>
+          <button onClick={() => onEdit(employee)} className="flex-1 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 flex items-center justify-center gap-1.5"><Edit2 className="w-3.5 h-3.5" />Edit</button>
           {employee.status !== "terminated" && (
             confirming === "delete" ? (
               <button onClick={handleTerminate} disabled={saving} className="py-2 px-4 bg-red-600 text-white text-sm font-semibold rounded-lg flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" />Confirm</button>
@@ -720,6 +780,7 @@ export default function EmployeesPage() {
   const [approvalFilter, setApprovalFilter] = useState("");
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingEmp, setEditingEmp] = useState<Employee | null>(null);
   const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -778,8 +839,15 @@ export default function EmployeesPage() {
   const pendingApprovals = employees.filter(e => e.approval_status === "pending").length;
   const onboardingInProgress = employees.filter(e => !e.onboarding_completed).length;
 
-  const handleSaved = (emp: Employee) => { setEmployees(p => [emp, ...p]); setToast({ message: `${emp.full_name} onboarded`, type: "success" }); };
+  const handleSaved = (emp: Employee, isEdit: boolean) => {
+    if (isEdit) { setEmployees(p => p.map(e => e.id === emp.id ? emp : e)); setToast({ message: `${emp.full_name} updated`, type: "success" }); }
+    else { setEmployees(p => [emp, ...p]); setToast({ message: `${emp.full_name} onboarded`, type: "success" }); }
+    setEditingEmp(null);
+  };
   const handleUpdate = (emp: Employee) => { setEmployees(p => p.map(e => e.id === emp.id ? emp : e)); };
+  const openCreate = () => { setEditingEmp(null); setDrawerOpen(true); };
+  const openEdit = (emp: Employee) => { setDetailOpen(false); setEditingEmp(emp); setDrawerOpen(true); };
+  const closeDrawer = () => { setDrawerOpen(false); setEditingEmp(null); };
 
   return (
     <div className="p-6 flex flex-col gap-5 min-h-full">
@@ -794,7 +862,7 @@ export default function EmployeesPage() {
         <div className="flex items-center gap-2">
           <button onClick={() => setShowDeptModal(true)} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-50"><Building2 className="w-4 h-4" />New Dept</button>
           <button onClick={fetchAll} className="p-2 hover:bg-gray-100 rounded-lg" title="Refresh"><RefreshCw className="w-4 h-4 text-gray-500" /></button>
-          <button onClick={() => setDrawerOpen(true)} className="flex items-center gap-1.5 px-4 py-2 bg-[#0f172a] text-white text-sm font-semibold rounded-lg hover:bg-[#1e293b]"><Plus className="w-4 h-4" />Onboard employee</button>
+          <button onClick={openCreate} className="flex items-center gap-1.5 px-4 py-2 bg-[#0f172a] text-white text-sm font-semibold rounded-lg hover:bg-[#1e293b]"><Plus className="w-4 h-4" />Onboard employee</button>
         </div>
       </div>
 
@@ -845,7 +913,7 @@ export default function EmployeesPage() {
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center"><Users className="w-5 h-5 text-gray-400" /></div>
             <p className="text-sm font-semibold text-gray-600">{employees.length === 0 ? "No employees yet" : "No matches"}</p>
-            {employees.length === 0 && <button onClick={() => setDrawerOpen(true)} className="mt-2 flex items-center gap-1.5 px-4 py-2 bg-[#0f172a] text-white text-sm font-semibold rounded-lg"><Plus className="w-4 h-4" />Onboard first employee</button>}
+            {employees.length === 0 && <button onClick={openCreate} className="mt-2 flex items-center gap-1.5 px-4 py-2 bg-[#0f172a] text-white text-sm font-semibold rounded-lg"><Plus className="w-4 h-4" />Onboard first employee</button>}
           </div>
         ) : (
           <>
@@ -880,7 +948,7 @@ export default function EmployeesPage() {
                         <td className="px-4 py-3"><StatusBadge status={emp.status} /></td>
                         <td className="px-4 py-3"><ApprovalBadge status={emp.approval_status} /></td>
                         <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                          <button className="p-1.5 hover:bg-gray-100 rounded-lg"><MoreHorizontal className="w-4 h-4 text-gray-400" /></button>
+                          <button onClick={() => openEdit(emp)} className="p-1.5 hover:bg-gray-100 rounded-lg" title="Edit"><Edit2 className="w-4 h-4 text-gray-400" /></button>
                         </td>
                       </tr>
                     );
@@ -897,8 +965,8 @@ export default function EmployeesPage() {
       </div>
 
       {/* Drawers */}
-      <AddEmployeeDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSaved={handleSaved} orgId={orgId} departments={departments} employees={employees} />
-      <EmployeeDetailDrawer employee={selectedEmp} open={detailOpen} onClose={() => setDetailOpen(false)} onUpdate={handleUpdate} employees={employees} />
+      <AddEmployeeDrawer open={drawerOpen} onClose={closeDrawer} onSaved={handleSaved} orgId={orgId} departments={departments} employees={employees} editing={editingEmp} />
+      <EmployeeDetailDrawer employee={selectedEmp} open={detailOpen} onClose={() => setDetailOpen(false)} onUpdate={handleUpdate} onEdit={openEdit} employees={employees} />
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
