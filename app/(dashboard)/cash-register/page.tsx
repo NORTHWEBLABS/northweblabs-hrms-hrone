@@ -30,6 +30,8 @@ interface PendingOrder { shopify_order_id: number; order_name: string; customer_
 
 const fmtINR = (n: number) => (n < 0 ? "-" : "") + "₹" + Math.abs(Math.round(n)).toLocaleString("en-IN");
 const fmtDate = (d: string) => new Date(d + "T00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+// "Today" in IST — avoids the UTC rollover showing the prior date in early-morning IST.
+const istToday = () => new Date(Date.now() + 19800000).toISOString().split("T")[0];
 
 const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition placeholder:text-gray-300";
 
@@ -111,7 +113,7 @@ function HandoverModal({ registerId, onSave, onClose }: { registerId: string; on
     setSaving(true);
     const orgId = await getOrgId(sb);
     const { data, error: e } = await sb.from("cash_handovers").insert({
-      org_id: orgId, register_id: registerId, date: new Date().toISOString().split("T")[0],
+      org_id: orgId, register_id: registerId, date: istToday(),
       type, amount: Number(amount), reference_number: ref || null, handed_to: handedTo || null, notes: notes || null,
     }).select().single();
     if (e) { setError(e.message); setSaving(false); return; }
@@ -155,8 +157,8 @@ function HandoverModal({ registerId, onSave, onClose }: { registerId: string; on
 // ══════════════════════════════════════════════════════════════════════════════
 export default function CashRegisterPage() {
   const sb = useSB();
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const isToday = date === new Date().toISOString().split("T")[0];
+  const [date, setDate] = useState(istToday());
+  const isToday = date === istToday();
   const [tab, setTab] = useState<"sales" | "expenses" | "cashout" | "summary" | "pending">("sales");
   const [register, setRegister] = useState<Register | null>(null);
   const [categories, setCategories] = useState<ExpCategory[]>([]);
@@ -371,7 +373,7 @@ export default function CashRegisterPage() {
 
   // Date nav
   const prevDay = () => { const d = new Date(date); d.setDate(d.getDate() - 1); setDate(d.toISOString().split("T")[0]); };
-  const nextDay = () => { const d = new Date(date); d.setDate(d.getDate() + 1); if (d <= new Date()) setDate(d.toISOString().split("T")[0]); };
+  const nextDay = () => { const d = new Date(date); d.setDate(d.getDate() + 1); const ns = d.toISOString().split("T")[0]; if (ns <= istToday()) setDate(ns); };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div>;
 
@@ -394,7 +396,7 @@ export default function CashRegisterPage() {
           {isToday && <span className="text-xs text-emerald-600 font-semibold">Today</span>}
         </div>
         <button onClick={nextDay} disabled={isToday} className="p-2 hover:bg-gray-100 rounded-xl border border-gray-200 disabled:opacity-30"><ChevronRight className="w-4 h-4 text-gray-500" /></button>
-        {!isToday && <button onClick={() => setDate(new Date().toISOString().split("T")[0])} className="text-xs text-indigo-600 font-semibold hover:underline">Today</button>}
+        {!isToday && <button onClick={() => setDate(istToday())} className="text-xs text-indigo-600 font-semibold hover:underline">Today</button>}
       </div>
 
       {/* Stat strip */}
@@ -534,80 +536,107 @@ export default function CashRegisterPage() {
       {/* ── TAB: Expenses (register_expenses + register_expense_categories) ── */}
       {tab === "expenses" && (
         <div className="space-y-5">
-          {/* Categories overview */}
+          {/* Record expense */}
           <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2"><Tag className="w-4 h-4 text-indigo-500" />Expense categories</h3>
-              <button onClick={() => setShowCatModal(true)} className="text-xs text-indigo-600 font-semibold hover:underline flex items-center gap-1"><Plus className="w-3 h-3" />New category</button>
+            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-4"><Receipt className="w-4 h-4 text-red-500" />Record expense</h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 mb-3">
+              <div className="sm:col-span-4">
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">What for</label>
+                <input value={expTitle} onChange={e => setExpTitle(e.target.value)} placeholder="e.g. Vendor payment, packaging" className={inputCls} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">Amount (₹)</label>
+                <input type="number" value={expAmount} onChange={e => setExpAmount(e.target.value)} placeholder="0" className={inputCls + " text-right font-semibold"} />
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {categories.map(c => (
-                <span key={c.id} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-gray-200 bg-white text-gray-700">
-                  <span className="w-2 h-2 rounded-full" style={{ background: c.color || "#6B7280" }} />{c.name}
-                </span>
-              ))}
-              {categories.length === 0 && <p className="text-xs text-gray-400">No categories yet. Click “New category” to add one.</p>}
+
+            <div className="mb-3">
+              <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Category</label>
+              <div className="flex flex-wrap gap-2">
+                {categories.map(c => {
+                  const active = expCatId === c.id;
+                  return (
+                    <button key={c.id} onClick={() => setExpCatId(active ? "" : c.id)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition ${active ? "text-white shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"}`}
+                      style={active ? { background: c.color || "#6366F1", borderColor: c.color || "#6366F1" } : undefined}>
+                      <span className="w-2 h-2 rounded-full" style={{ background: active ? "rgba(255,255,255,0.8)" : (c.color || "#6B7280") }} />{c.name}
+                    </button>
+                  );
+                })}
+                <button onClick={() => setShowCatModal(true)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-500 hover:border-indigo-300 hover:text-indigo-600 transition"><Plus className="w-3 h-3" />New</button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Paid via</label>
+                <div className="flex gap-1.5">
+                  {["cash", "upi", "card", "bank_transfer"].map(m => (
+                    <button key={m} onClick={() => setExpPayMode(m)}
+                      className={`flex-1 px-2 py-2 rounded-lg text-[11px] font-semibold capitalize border transition ${expPayMode === m ? "bg-indigo-50 text-indigo-700 border-indigo-300" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"}`}>
+                      {m === "bank_transfer" ? "Bank" : m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="sm:col-span-3">
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Note (optional)</label>
+                <input value={expDesc} onChange={e => setExpDesc(e.target.value)} placeholder="Add a note" className={inputCls} />
+              </div>
+              <div className="sm:col-span-1">
+                <button onClick={addExpense} disabled={!expTitle.trim() || !expAmount}
+                  className="w-full py-2.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold disabled:opacity-30 flex items-center justify-center gap-1 hover:bg-indigo-700 transition">
+                  <Plus className="w-3.5 h-3.5" />Add
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Add expense */}
+          {/* Today's expenses */}
           <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2"><Receipt className="w-4 h-4 text-red-500" />Today&apos;s expenses</h3>
-              <span className="text-xs text-gray-400">{expenses.length} entries · {fmtINR(totalExp)}</span>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-gray-900">Today&apos;s expenses</h3>
+              <span className="text-xs text-gray-400">{expenses.length} entries · <span className="font-semibold text-red-500">{fmtINR(totalExp)}</span></span>
             </div>
 
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl mb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <input value={expTitle} onChange={e => setExpTitle(e.target.value)} placeholder="Title *" className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200" />
-                <input type="number" value={expAmount} onChange={e => setExpAmount(e.target.value)} placeholder="₹ Amount *" className="w-24 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-right font-medium focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+            {expenses.length === 0 ? (
+              <div className="text-center py-10">
+                <Receipt className="w-9 h-9 text-gray-200 mx-auto mb-2" />
+                <p className="text-sm text-gray-400">No expenses recorded for this date</p>
               </div>
-              <div className="flex items-center gap-2">
-                <select value={expCatId} onChange={e => { if (e.target.value === "__new__") { setShowCatModal(true); } else { setExpCatId(e.target.value); } }} className="px-2 py-2 text-xs border border-gray-200 rounded-lg bg-white w-36 focus:outline-none focus:ring-2 focus:ring-indigo-200">
-                  <option value="">Category…</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  <option value="__new__">＋ New category…</option>
-                </select>
-                <select value={expPayMode} onChange={e => setExpPayMode(e.target.value)} className="px-2 py-2 text-xs border border-gray-200 rounded-lg bg-white w-20 focus:outline-none focus:ring-2 focus:ring-indigo-200">
-                  <option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="bank_transfer">Bank</option>
-                </select>
-                <input value={expDesc} onChange={e => setExpDesc(e.target.value)} placeholder="Note" className="flex-1 px-2 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200" />
-                <button onClick={addExpense} disabled={!expTitle.trim() || !expAmount} className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold disabled:opacity-30 flex items-center gap-1"><Plus className="w-3 h-3" />Add</button>
-              </div>
-            </div>
-
-            {/* List */}
-            {expenses.length === 0 ? <p className="text-xs text-gray-400 text-center py-6">No expenses recorded for this date</p> : (
+            ) : (
               <div className="space-y-2">
                 {expenses.map(e => {
                   const cat = e.category_name ? categories.find(c => c.name === e.category_name) : null;
+                  const accent = cat?.color || "#94A3B8";
                   return (
-                    <div key={e.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900">{e.head_name}</p>
-                        {e.description && <p className="text-xs text-gray-400 truncate mt-0.5">{e.description}</p>}
+                    <div key={e.id} className="group flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50/60 transition">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: accent + "15", color: accent }}>
+                        <Receipt className="w-4 h-4" />
                       </div>
-                      {cat && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border" style={{ background: (cat.color || "#6B7280") + "15", color: cat.color || "#6B7280", borderColor: (cat.color || "#6B7280") + "30" }}>
-                          {cat.name}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-gray-400 uppercase">{e.payment_mode || "—"}</span>
-                      <span className="text-sm font-bold text-red-600 min-w-[60px] text-right">-{fmtINR(e.amount)}</span>
-                      <button onClick={() => deleteExpense(e.id)} className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{e.head_name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {cat && <span className="text-[10px] font-semibold" style={{ color: cat.color || "#6B7280" }}>{cat.name}</span>}
+                          <span className="text-[10px] text-gray-400 uppercase">{(e.payment_mode || "—").replace(/_/g, " ")}</span>
+                          {e.description && <span className="text-[10px] text-gray-400 truncate">· {e.description}</span>}
+                        </div>
+                      </div>
+                      <span className="text-sm font-bold text-red-600 whitespace-nowrap">-{fmtINR(e.amount)}</span>
+                      <button onClick={() => deleteExpense(e.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   );
                 })}
               </div>
             )}
 
-            {/* Category summary */}
             {expByCat.length > 0 && (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4 pt-4 border-t border-gray-100">
                 {expByCat.map(([catName, data]) => (
-                  <div key={catName} className="p-2.5 rounded-lg flex justify-between items-center" style={{ background: data.color + "10" }}>
-                    <span className="text-xs font-medium" style={{ color: data.color }}>{catName}</span>
-                    <span className="text-xs font-bold" style={{ color: data.color }}>{fmtINR(data.amount)}</span>
+                  <div key={catName} className="p-3 rounded-xl flex flex-col gap-0.5" style={{ background: data.color + "10" }}>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: data.color }}>{catName}</span>
+                    <span className="text-sm font-bold" style={{ color: data.color }}>{fmtINR(data.amount)}</span>
                   </div>
                 ))}
               </div>
