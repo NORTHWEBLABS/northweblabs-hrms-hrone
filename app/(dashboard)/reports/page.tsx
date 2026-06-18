@@ -86,6 +86,7 @@ export default function ReportsPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [yesterdayOrders, setYesterdayOrders] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
+  const [regExpenses, setRegExpenses] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [cashflow, setCashflow] = useState<any[]>([]);
@@ -103,7 +104,7 @@ export default function ReportsPage() {
     const oid = await getOrgId(sb);
     if (!oid) { setLoading(false); return; }
     const yesterday = new Date(new Date(from).getTime() - 86400000).toISOString().split("T")[0];
-    const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10] = await Promise.all([
+    const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11] = await Promise.all([
       sb.from("store_orders").select("*").eq("org_id", oid).gte("created_at", from + "T00:00").lte("created_at", to + "T23:59").order("created_at"),
       sb.from("expenses").select("*").eq("org_id", oid).gte("date", from).lte("date", to),
       sb.from("employees").select("id, full_name, email, department, designation, status, date_of_joining, gender, gross_salary").eq("org_id", oid),
@@ -114,10 +115,12 @@ export default function ReportsPage() {
       sb.from("store_orders").select("total, created_at, payment_status").eq("org_id", oid).gte("created_at", yesterday + "T00:00").lte("created_at", yesterday + "T23:59"),
       sb.from("expense_heads").select("id, name, parent_id").eq("org_id", oid),
       sb.from("users").select("id, full_name, email").eq("org_id", oid),
+      sb.from("register_expenses").select("amount, category_name, head_name, date, payment_mode").eq("org_id", oid).gte("date", from).lte("date", to),
     ]);
     setOrders(r1.data || []); setYesterdayOrders(r8.data || []); setExpenses(r2.data || []);
     setEmployees(r3.data || []); setInvoices(r4.data || []); setCashflow(r5.data || []);
     setExpCategories(r7.data || []); setHeads((r9.data || []) as Head[]);
+    setRegExpenses(r11.data || []);
 
     // Build name maps for audit trail resolution
     const em: Record<string, string> = {};
@@ -135,7 +138,15 @@ export default function ReportsPage() {
   // Analytics
   const paid = orders.filter((o: any) => o.payment_status === "paid");
   const totalRev = paid.reduce((s: number, o: any) => s + (o.total || 0), 0);
-  const totalExp = expenses.reduce((s: number, e: any) => s + (e.amount || 0), 0);
+
+  // ── Combined expense: register expenses (all, already paid) + committed reimbursements ──
+  const reimbCommitted = expenses.filter((e: any) => e.status === "approved" || e.status === "reimbursed");
+  const regExpTotal = regExpenses.reduce((s: number, e: any) => s + (e.amount || 0), 0);
+  const reimbCommittedTotal = reimbCommitted.reduce((s: number, e: any) => s + (e.amount || 0), 0);
+  const reimbPendingTotal = expenses.filter((e: any) => e.status === "pending").reduce((s: number, e: any) => s + (e.amount || 0), 0);
+  const totalExp = regExpTotal + reimbCommittedTotal;
+  const expEntryCount = regExpenses.length + reimbCommitted.length;
+
   const totalInv = invoices.reduce((s: number, i: any) => s + (i.total_amount || 0), 0);
   const paidInv = invoices.filter((i: any) => i.status === "paid").reduce((s: number, i: any) => s + (i.total_amount || 0), 0);
   const activeEmps = employees.filter((e: any) => e.status === "active").length;
@@ -200,15 +211,17 @@ export default function ReportsPage() {
   const monthlyData = useMemo(() => {
     const map = MONTHS.map(m => ({ month: m, revenue: 0, expenses: 0 }));
     paid.forEach((o: any) => { map[new Date(o.created_at).getMonth()].revenue += o.total || 0; });
-    expenses.forEach((e: any) => { map[new Date(e.date).getMonth()].expenses += e.amount || 0; });
+    expenses.filter((e: any) => e.status === "approved" || e.status === "reimbursed").forEach((e: any) => { map[new Date(e.date).getMonth()].expenses += e.amount || 0; });
+    regExpenses.forEach((e: any) => { map[new Date(e.date).getMonth()].expenses += e.amount || 0; });
     return map;
-  }, [paid, expenses]);
+  }, [paid, expenses, regExpenses]);
 
   const expByCat = useMemo(() => {
     const map: Record<string, number> = {};
-    expenses.forEach((e: any) => { const cat = expCategories.find((c: any) => c.id === e.category_id); map[cat?.name || "Other"] = (map[cat?.name || "Other"] || 0) + (e.amount || 0); });
+    expenses.filter((e: any) => e.status === "approved" || e.status === "reimbursed").forEach((e: any) => { const cat = expCategories.find((c: any) => c.id === e.category_id); const name = cat?.name || "Other"; map[name] = (map[name] || 0) + (e.amount || 0); });
+    regExpenses.forEach((e: any) => { const name = e.category_name || "Store expense"; map[name] = (map[name] || 0) + (e.amount || 0); });
     return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([name, value], i) => ({ name, value, fill: COLORS[i % COLORS.length] }));
-  }, [expenses, expCategories]);
+  }, [expenses, regExpenses, expCategories]);
 
   const deptData = useMemo(() => {
     const map: Record<string, number> = {};
@@ -292,7 +305,7 @@ export default function ReportsPage() {
           {module === "overview" && (<>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <StatCard label="Revenue" value={fmtINR(totalRev)} sub={`${paid.length} orders`} icon={<IndianRupee className="w-5 h-5 text-indigo-500" />} />
-              <StatCard label="Expenses" value={fmtINR(totalExp)} sub={`${expenses.length} entries`} icon={<Receipt className="w-5 h-5 text-red-500" />} />
+              <StatCard label="Expenses" value={fmtINR(totalExp)} sub={`${expEntryCount} entries`} icon={<Receipt className="w-5 h-5 text-red-500" />} />
               <StatCard label="Net P&L" value={fmtINR(totalRev - totalExp)} icon={<TrendingUp className="w-5 h-5 text-emerald-500" />} trend={totalRev > 0 ? Math.round(((totalRev - totalExp) / totalRev) * 100) : 0} />
               <StatCard label="Invoiced" value={fmtINR(totalInv)} sub={`Paid: ${fmtINR(paidInv)}`} icon={<FileText className="w-5 h-5 text-blue-500" />} />
               <StatCard label="Team" value={activeEmps.toString()} sub={`${employees.length} total`} icon={<Users className="w-5 h-5 text-violet-500" />} />
@@ -377,13 +390,34 @@ export default function ReportsPage() {
             </div>
           </>)}
 
-          {/* EXPENSES */}
+          {/* EXPENSES — combined: register (store cash) + committed reimbursements */}
           {module === "expenses" && (<>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-              <StatCard label="Total" value={fmtINR(totalExp)} sub={`${expenses.length} entries`} icon={<Receipt className="w-5 h-5 text-red-500" />} />
-              <StatCard label="Avg/day" value={fmtINR(totalExp / Math.max(1, Math.ceil((new Date(to).getTime() - new Date(from).getTime()) / 86400000)))} icon={<Clock className="w-5 h-5 text-amber-500" />} />
-              <StatCard label="Categories" value={expByCat.length.toString()} icon={<PieChart className="w-5 h-5 text-violet-500" />} />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard label="Total expense" value={fmtINR(totalExp)} sub={`${expEntryCount} entries`} icon={<Receipt className="w-5 h-5 text-red-500" />} />
+              <StatCard label="Store / register" value={fmtINR(regExpTotal)} sub={`${regExpenses.length} entries`} icon={<Wallet className="w-5 h-5 text-amber-500" />} />
+              <StatCard label="Reimbursements" value={fmtINR(reimbCommittedTotal)} sub={`${reimbCommitted.length} committed`} icon={<IndianRupee className="w-5 h-5 text-blue-500" />} />
+              <StatCard label="Reimb. pending" value={fmtINR(reimbPendingTotal)} sub="Not yet counted" icon={<Clock className="w-5 h-5 text-violet-500" />} />
             </div>
+
+            <ChartCard title="Total expense by source">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-amber-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-amber-600 uppercase">Store / register (cash)</p>
+                  <p className="text-xl font-bold text-amber-800">{fmtINR(regExpTotal)}</p>
+                  <p className="text-xs text-amber-400">{regExpenses.length} entries · counted in full</p>
+                </div>
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-blue-600 uppercase">Reimbursements (committed)</p>
+                  <p className="text-xl font-bold text-blue-800">{fmtINR(reimbCommittedTotal)}</p>
+                  <p className="text-xs text-blue-400">{reimbCommitted.length} approved/paid{reimbPendingTotal > 0 ? ` · ${fmtINR(reimbPendingTotal)} pending` : ""}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                <span className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Combined total expense</span>
+                <span className="text-lg font-bold text-gray-900">{fmtINR(totalExp)}</span>
+              </div>
+            </ChartCard>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <ChartCard title="By category (donut)">
                 <ResponsiveContainer width="100%" height={250}><RePieChart><Pie data={expByCat} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2} label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: 10 }}>{expByCat.map((e, i) => <Cell key={i} fill={e.fill} />)}</Pie><Tooltip content={<CustomTooltip />} /></RePieChart></ResponsiveContainer>

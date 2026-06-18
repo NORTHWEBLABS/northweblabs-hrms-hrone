@@ -433,133 +433,105 @@ export default function CashRegisterPage() {
         ))}
       </div>
 
-      {/* ── TAB: Sales ──────────────────────────────────────────── */}
+      {/* ── TAB: Sales (read-only Shopify summary) ──────────────── */}
       {tab === "sales" && (
         <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-          <div className="flex items-start justify-between mb-1">
-            <h3 className="text-sm font-bold text-gray-900">Record daily sales</h3>
-            <button onClick={pullShopify} disabled={pulling}
-              className="flex items-center gap-1.5 px-3 py-2 bg-[#0f172a] text-white text-xs font-semibold rounded-lg hover:bg-[#1e293b] disabled:opacity-50">
-              {pulling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}Pull from Shopify
-            </button>
-          </div>
-          <p className="text-xs text-gray-400 mb-5">Pull fills online/offline totals + payment split from Shopify. Edit any field, then save. All three totals must match.</p>
-
-          <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl mb-5">
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Total sales (₹)</label>
-              <input type="number" value={totalSales} onChange={e => setTotalSales(e.target.value)} placeholder="0" className="w-full text-2xl font-bold bg-transparent outline-none text-gray-900 placeholder:text-gray-300" />
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-bold text-gray-900">Daily sales</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Pulled from Shopify — online &amp; offline totals with the full payment split.</p>
             </div>
-            <div className="w-24">
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Orders</label>
-              <input type="number" value={totalOrders} onChange={e => setTotalOrders(e.target.value)} placeholder="0" className="w-full text-lg font-bold bg-transparent outline-none text-gray-700 placeholder:text-gray-300" />
+            <div className="flex items-center gap-3">
+              {register?.shopify_pulled_at && <span className="text-[10px] text-gray-400 whitespace-nowrap">pulled {new Date(register.shopify_pulled_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
+              <button onClick={pullShopify} disabled={pulling}
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#0f172a] text-white text-xs font-semibold rounded-lg hover:bg-[#1e293b] disabled:opacity-50 whitespace-nowrap">
+                {pulling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}{breakdown ? "Re-pull" : "Pull from Shopify"}
+              </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <div className="border border-gray-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase mb-3 flex items-center gap-2"><span className="w-2 h-2 bg-amber-500 rounded-full" />Channel-wise split</p>
-              {[
-                { label: "Store walk-in", val: walkin, set: setWalkin },
-                { label: "Online website", val: online, set: setOnline },
-                { label: "WhatsApp", val: whatsapp, set: setWhatsapp },
-              ].map(ch => (
-                <div key={ch.label} className="flex items-center gap-3 mb-3">
-                  <span className="text-xs text-gray-600 w-28 flex-shrink-0">{ch.label}</span>
-                  <input type="number" value={ch.val.amount} onChange={e => ch.set(p => ({ ...p, amount: e.target.value }))} placeholder="₹ Amount" className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-right font-medium focus:outline-none focus:ring-2 focus:ring-indigo-200" />
-                  <input type="number" value={ch.val.orders} onChange={e => ch.set(p => ({ ...p, orders: e.target.value }))} placeholder="Ord" className="w-16 px-2 py-2 text-sm border border-gray-200 rounded-lg bg-white text-center text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+          {!breakdown ? (
+            <div className="text-center py-14 border border-dashed border-gray-200 rounded-xl">
+              <ShoppingBag className="w-9 h-9 text-gray-200 mx-auto mb-3" />
+              <p className="text-sm font-semibold text-gray-500">No sales pulled for this day yet</p>
+              <p className="text-xs text-gray-400 mt-1 mb-4">Pull this day&apos;s orders from Shopify to load sales and the payment breakdown.</p>
+              <button onClick={pullShopify} disabled={pulling}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0f172a] text-white text-xs font-semibold rounded-lg hover:bg-[#1e293b] disabled:opacity-50">
+                {pulling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}Pull from Shopify
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Total */}
+              <div className="flex items-center justify-between gap-4 p-5 bg-gradient-to-br from-gray-50 to-gray-100/60 rounded-xl mb-4">
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Total sales</p>
+                  <p className="text-3xl font-bold text-gray-900">{fmtINR((breakdown.online?.sales || 0) + (breakdown.offline?.sales || 0))}</p>
                 </div>
-              ))}
-              <div className="flex justify-between pt-3 border-t border-gray-200">
-                <span className="text-xs text-gray-500 uppercase font-semibold">Channel total</span>
-                <span className={`text-sm font-bold ${channelTotal === salesNum && salesNum > 0 ? "text-emerald-600" : channelTotal > 0 ? "text-gray-900" : "text-gray-400"}`}>{fmtINR(channelTotal)}</span>
-              </div>
-            </div>
-
-            <div className="border border-gray-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase mb-3 flex items-center gap-2"><span className="w-2 h-2 bg-violet-500 rounded-full" />Payment mode split</p>
-              {[
-                { label: "Cash", val: payCash, set: setPayCash },
-                { label: "UPI", val: payUpi, set: setPayUpi },
-                { label: "Card", val: payCard, set: setPayCard },
-                { label: "Payment gateway", val: payGateway, set: setPayGateway },
-              ].map(pm => (
-                <div key={pm.label} className="flex items-center gap-3 mb-3">
-                  <span className="text-xs text-gray-600 w-28 flex-shrink-0">{pm.label}</span>
-                  <input type="number" value={pm.val} onChange={e => pm.set(e.target.value)} placeholder="₹ Amount" className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-right font-medium focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                <div className="text-right">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Orders</p>
+                  <p className="text-2xl font-bold text-gray-700">{(breakdown.online?.orders || 0) + (breakdown.offline?.orders || 0)}</p>
                 </div>
-              ))}
-              <div className="flex justify-between pt-3 border-t border-gray-200">
-                <span className="text-xs text-gray-500 uppercase font-semibold">Payment total</span>
-                <span className={`text-sm font-bold ${payTotal === salesNum && salesNum > 0 ? "text-emerald-600" : payTotal > 0 ? "text-gray-900" : "text-gray-400"}`}>{fmtINR(payTotal)}</span>
               </div>
-            </div>
-          </div>
 
-          {salesNum > 0 && (
-            <div className={`flex items-center gap-2 mt-4 p-3 rounded-xl border ${isReconciled ? "bg-emerald-50 border-emerald-200" : hasMismatch ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"}`}>
-              {isReconciled ? <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" /> : hasMismatch ? <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" /> : null}
-              <p className={`text-xs font-semibold flex-1 ${isReconciled ? "text-emerald-700" : hasMismatch ? "text-red-600" : "text-gray-600"}`}>
-                {isReconciled ? `Reconciled — all three totals match ${fmtINR(salesNum)}` :
-                  hasMismatch ? `Mismatch — Total: ${fmtINR(salesNum)} | Channel: ${fmtINR(channelTotal)} (${channelTotal !== salesNum ? `diff ${fmtINR(salesNum - channelTotal)}` : "✓"}) | Payment: ${fmtINR(payTotal)} (${payTotal !== salesNum ? `diff ${fmtINR(salesNum - payTotal)}` : "✓"})` :
-                  "Fill in channel and payment splits to reconcile"}
-              </p>
-            </div>
-          )}
-
-          <button onClick={saveSales} disabled={saving || (salesNum > 0 && !isReconciled)}
-            className="w-full mt-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-40 flex items-center justify-center gap-2 transition shadow-md shadow-indigo-200/40">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save sales entry
-          </button>
-
-          {breakdown && (
-            <div className="mt-5 border border-gray-200 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <ShoppingBag className="w-4 h-4 text-[#0f172a]" />
-                <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Shopify breakdown</h4>
-                {register?.shopify_pulled_at && <span className="text-[10px] text-gray-400">pulled {new Date(register.shopify_pulled_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
-              </div>
+              {/* Online / Offline */}
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-blue-50 rounded-lg p-3">
-                  <p className="text-[10px] font-semibold text-blue-600 uppercase">Online</p>
-                  <p className="text-base font-bold text-blue-800">{fmtINR(breakdown.online?.sales || 0)}</p>
-                  <p className="text-[10px] text-blue-400">{breakdown.online?.orders || 0} orders</p>
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide">Online</p>
+                  <p className="text-xl font-bold text-blue-800">{fmtINR(breakdown.online?.sales || 0)}</p>
+                  <p className="text-[10px] text-blue-400">{breakdown.online?.orders || 0} orders · website</p>
                 </div>
-                <div className="bg-amber-50 rounded-lg p-3">
-                  <p className="text-[10px] font-semibold text-amber-600 uppercase">Offline (walk-in + WhatsApp)</p>
-                  <p className="text-base font-bold text-amber-800">{fmtINR(breakdown.offline?.sales || 0)}</p>
-                  <p className="text-[10px] text-amber-400">{breakdown.offline?.orders || 0} orders</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase mb-2">Online payment (gateway)</p>
-                  {Object.entries(breakdown.payments_online || {}).length === 0 ? <p className="text-xs text-gray-300">—</p> :
-                    Object.entries(breakdown.payments_online || {}).map(([k, v]: any) => (
-                      <div key={k} className="flex justify-between text-xs py-1 border-b border-gray-50">
-                        <span className="text-gray-600 capitalize">{k.replace(/_/g, " ")}</span>
-                        <span className="font-semibold text-gray-800">{fmtINR(v.amount)} <span className="text-gray-300">· {v.orders}</span></span>
-                      </div>
-                    ))}
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase mb-2">Offline payment (tag)</p>
-                  {Object.entries(breakdown.payments_offline || {}).length === 0 ? <p className="text-xs text-gray-300">—</p> :
-                    Object.entries(breakdown.payments_offline || {}).map(([k, v]: any) => (
-                      <div key={k} className="flex justify-between text-xs py-1 border-b border-gray-50">
-                        <span className={`${k === "Untagged" ? "text-red-500" : "text-gray-600"}`}>{k}</span>
-                        <span className="font-semibold text-gray-800">{fmtINR(v.amount)} <span className="text-gray-300">· {v.orders}</span></span>
-                      </div>
-                    ))}
+                <div className="bg-amber-50 rounded-xl p-4">
+                  <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wide">Offline (walk-in + WhatsApp)</p>
+                  <p className="text-xl font-bold text-amber-800">{fmtINR(breakdown.offline?.sales || 0)}</p>
+                  <p className="text-[10px] text-amber-400">{breakdown.offline?.orders || 0} orders · store / manual</p>
                 </div>
               </div>
+
+              {/* Payment breakdown */}
+              <div className="border border-gray-200 rounded-xl p-4 mb-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-3 flex items-center gap-2"><span className="w-2 h-2 bg-violet-500 rounded-full" />Payment breakdown</p>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-0">
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1.5">Online (gateway)</p>
+                    {Object.entries(breakdown.payments_online || {}).length === 0 ? <p className="text-xs text-gray-300 py-1">—</p> :
+                      Object.entries(breakdown.payments_online || {}).map(([k, v]: any) => (
+                        <div key={k} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
+                          <span className="text-gray-600 capitalize">{k.replace(/_/g, " ")}</span>
+                          <span className="font-semibold text-gray-800">{fmtINR(v.amount)} <span className="text-gray-300 font-normal">· {v.orders}</span></span>
+                        </div>
+                      ))}
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1.5">Offline (tag)</p>
+                    {Object.entries(breakdown.payments_offline || {}).length === 0 ? <p className="text-xs text-gray-300 py-1">—</p> :
+                      Object.entries(breakdown.payments_offline || {}).map(([k, v]: any) => (
+                        <div key={k} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
+                          <span className={k === "Untagged" ? "text-red-500" : "text-gray-600"}>{k}</span>
+                          <span className="font-semibold text-gray-800">{fmtINR(v.amount)} <span className="text-gray-300 font-normal">· {v.orders}</span></span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+                <div className="flex justify-between pt-3 mt-2 border-t border-gray-200">
+                  <span className="text-xs text-gray-500 uppercase font-semibold">Payment total</span>
+                  <span className="text-sm font-bold text-gray-900">{fmtINR((breakdown.online?.sales || 0) + (breakdown.offline?.sales || 0))}</span>
+                </div>
+              </div>
+
+              {/* Untagged warning */}
               {breakdown.untagged_payment_orders?.length > 0 && (
-                <div className="mt-3 p-2.5 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                <div className="mb-4 p-2.5 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
                   <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
                   <p className="text-[11px] text-red-700">{breakdown.untagged_payment_orders.length} offline order(s) have no payment tag — add a payment tag in Shopify and re-pull: <span className="font-mono">{breakdown.untagged_payment_orders.join(", ")}</span></p>
                 </div>
               )}
-            </div>
+
+              <button onClick={saveSales} disabled={saving || !breakdown}
+                className="w-full py-3 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-40 flex items-center justify-center gap-2 transition shadow-md shadow-indigo-200/40">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save sales entry
+              </button>
+            </>
           )}
         </div>
       )}
