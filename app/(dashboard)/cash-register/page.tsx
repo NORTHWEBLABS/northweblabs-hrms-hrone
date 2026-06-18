@@ -10,6 +10,7 @@ import {
   Wallet, ChevronLeft, ChevronRight, RefreshCw,
   Building2, Send,
   PiggyBank, Receipt, Tag, Trash2, Save,
+  Download, ShoppingBag, Clock, AlertTriangle,
 } from "lucide-react";
 
 function useSB() { return useMemo(() => createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!), []); }
@@ -21,10 +22,11 @@ async function getOrgId(sb: any): Promise<string> {
   return "";
 }
 
-interface Register { id: string; date: string; opening_cash: number; walkin_amount: number; walkin_orders: number; online_amount: number; online_orders: number; whatsapp_amount: number; whatsapp_orders: number; total_sales: number; total_orders: number; pay_cash: number; pay_upi: number; pay_card: number; pay_gateway: number; total_expenses: number; bank_deposit: number; hq_handover: number; other_handover: number; closing_cash: number; is_closed: boolean; notes: string | null; }
+interface Register { id: string; date: string; opening_cash: number; walkin_amount: number; walkin_orders: number; online_amount: number; online_orders: number; whatsapp_amount: number; whatsapp_orders: number; total_sales: number; total_orders: number; pay_cash: number; pay_upi: number; pay_card: number; pay_gateway: number; total_expenses: number; bank_deposit: number; hq_handover: number; other_handover: number; closing_cash: number; is_closed: boolean; notes: string | null; shopify_breakdown?: any; shopify_pulled_at?: string | null; }
 interface ExpCategory { id: string; name: string; color: string | null; }
 interface Expense { id: string; head_name: string; category_name: string | null; description: string | null; amount: number; payment_mode: string; created_at: string; }
 interface Handover { id: string; type: string; amount: number; reference_number: string | null; handed_to: string | null; notes: string | null; created_at: string; }
+interface PendingOrder { shopify_order_id: number; order_name: string; customer_name: string | null; channel: string; total: number; order_created_at: string; financial_status: string; first_seen_date: string; }
 
 const fmtINR = (n: number) => (n < 0 ? "-" : "") + "₹" + Math.abs(Math.round(n)).toLocaleString("en-IN");
 const fmtDate = (d: string) => new Date(d + "T00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
@@ -155,7 +157,7 @@ export default function CashRegisterPage() {
   const sb = useSB();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const isToday = date === new Date().toISOString().split("T")[0];
-  const [tab, setTab] = useState<"sales" | "expenses" | "cashout" | "summary">("sales");
+  const [tab, setTab] = useState<"sales" | "expenses" | "cashout" | "summary" | "pending">("sales");
   const [register, setRegister] = useState<Register | null>(null);
   const [categories, setCategories] = useState<ExpCategory[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -163,6 +165,11 @@ export default function CashRegisterPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+
+  // Shopify daily pull
+  const [pulling, setPulling] = useState(false);
+  const [breakdown, setBreakdown] = useState<any | null>(null);
+  const [pending, setPending] = useState<PendingOrder[]>([]);
 
   // Modals
   const [showHandover, setShowHandover] = useState(false);
@@ -210,7 +217,14 @@ export default function CashRegisterPage() {
       setPayUpi(reg.pay_upi ? String(reg.pay_upi) : "");
       setPayCard(reg.pay_card ? String(reg.pay_card) : "");
       setPayGateway(reg.pay_gateway ? String(reg.pay_gateway) : "");
+      setBreakdown(reg.shopify_breakdown || null);
     }
+
+    // Pending-payment watchlist (open items, all dates since go-live)
+    const { data: pend } = await sb.from("shopify_pending_orders")
+      .select("shopify_order_id, order_name, customer_name, channel, total, order_created_at, financial_status, first_seen_date")
+      .eq("org_id", oid).eq("resolved", false).order("order_created_at", { ascending: false });
+    setPending((pend || []) as PendingOrder[]);
 
     // Fetch register categories, expenses for this date, handovers
     const [{ data: cats }, { data: exps }, { data: hvs }] = await Promise.all([
@@ -252,6 +266,62 @@ export default function CashRegisterPage() {
     });
     return Object.entries(map).sort((a, b) => b[1].amount - a[1].amount);
   }, [expenses, categories]);
+
+  // Pull from Shopify — fills online/offline channel totals + payment split, stores full breakdown
+  const pullShopify = async () => {
+    setPulling(true);
+    try {
+      const orgId = await getOrgId(sb);
+      const res = await fetch("/api/shopify/daily-pull", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, date }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.ok) { setToast({ msg: j.error || "Shopify pull failed", type: "error" }); return; }
+      if (j.skipped) { setToast({ msg: j.reason || "Skipped", type: "error" }); return; }
+
+      const b = j.breakdown;
+      setBreakdown(b);
+
+      // Channel prefill — untagged offline folds into walk-in so the channel total reconciles
+      const walkinSales = (b.offline_sub?.walkin?.sales || 0) + (b.offline_sub?.untagged_channel?.sales || 0);
+      const walkinOrders = (b.offline_sub?.walkin?.orders || 0) + (b.offline_sub?.untagged_channel?.orders || 0);
+      setWalkin({ amount: walkinSales ? String(walkinSales) : "", orders: walkinOrders ? String(walkinOrders) : "" });
+      setOnline({ amount: b.online?.sales ? String(b.online.sales) : "", orders: b.online?.orders ? String(b.online.orders) : "" });
+      setWhatsapp({ amount: b.offline_sub?.whatsapp?.sales ? String(b.offline_sub.whatsapp.sales) : "", orders: b.offline_sub?.whatsapp?.orders ? String(b.offline_sub.whatsapp.orders) : "" });
+
+      const tot = (b.online?.sales || 0) + (b.offline?.sales || 0);
+      const totO = (b.online?.orders || 0) + (b.offline?.orders || 0);
+      setTotalSales(tot ? String(Math.round(tot * 100) / 100) : "");
+      setTotalOrders(totO ? String(totO) : "");
+
+      // Payment prefill into the 4 coarse buckets (full detail kept in the breakdown card below).
+      // Remainder lands in "gateway" so the payment total always equals sales (keeps reconcile green).
+      const po = b.payments_offline || {};
+      const pon = b.payments_online || {};
+      const onlineMatch = (re: RegExp) => Object.entries(pon).filter(([k]) => re.test(k.toLowerCase())).reduce((s, [, v]: any) => s + (v.amount || 0), 0);
+      const cash = (po["Cash"]?.amount || 0) + (po["Cash deposit"]?.amount || 0) + onlineMatch(/cash|cod/);
+      const upi = (po["UPI"]?.amount || 0) + onlineMatch(/upi/);
+      const card = (po["Card"]?.amount || 0) + onlineMatch(/card/);
+      const allPay = [...Object.values(po), ...Object.values(pon)].reduce((s: number, v: any) => s + (v.amount || 0), 0);
+      const gateway = Math.max(0, Math.round((allPay - cash - upi - card) * 100) / 100);
+      setPayCash(cash ? String(Math.round(cash * 100) / 100) : "");
+      setPayUpi(upi ? String(Math.round(upi * 100) / 100) : "");
+      setPayCard(card ? String(Math.round(card * 100) / 100) : "");
+      setPayGateway(gateway ? String(gateway) : "");
+
+      // Refresh the pending watchlist
+      const { data: pend } = await sb.from("shopify_pending_orders")
+        .select("shopify_order_id, order_name, customer_name, channel, total, order_created_at, financial_status, first_seen_date")
+        .eq("org_id", orgId).eq("resolved", false).order("order_created_at", { ascending: false });
+      setPending((pend || []) as PendingOrder[]);
+
+      const c = j.counts || {};
+      setToast({ msg: `Pulled ${c.orders ?? 0} orders · ${pending.length} pending`, type: "success" });
+    } catch (err: any) {
+      setToast({ msg: err.message || "Shopify pull failed", type: "error" });
+    } finally { setPulling(false); }
+  };
 
   // Save sales
   const saveSales = async () => {
@@ -352,6 +422,7 @@ export default function CashRegisterPage() {
           { id: "expenses" as const, label: "Expenses", count: expenses.length || null },
           { id: "cashout" as const, label: "Cash out", count: handovers.length || null },
           { id: "summary" as const, label: "Day summary" },
+          { id: "pending" as const, label: "Pending pay", count: pending.length || null },
         ]).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`relative px-5 py-3 text-sm font-medium transition ${tab === t.id ? "text-indigo-600" : "text-gray-500 hover:text-gray-700"}`}>
@@ -365,8 +436,14 @@ export default function CashRegisterPage() {
       {/* ── TAB: Sales ──────────────────────────────────────────── */}
       {tab === "sales" && (
         <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-          <h3 className="text-sm font-bold text-gray-900 mb-1">Record daily sales</h3>
-          <p className="text-xs text-gray-400 mb-5">Enter total, then split by channel and payment. All three must match.</p>
+          <div className="flex items-start justify-between mb-1">
+            <h3 className="text-sm font-bold text-gray-900">Record daily sales</h3>
+            <button onClick={pullShopify} disabled={pulling}
+              className="flex items-center gap-1.5 px-3 py-2 bg-[#0f172a] text-white text-xs font-semibold rounded-lg hover:bg-[#1e293b] disabled:opacity-50">
+              {pulling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}Pull from Shopify
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mb-5">Pull fills online/offline totals + payment split from Shopify. Edit any field, then save. All three totals must match.</p>
 
           <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl mb-5">
             <div className="flex-1">
@@ -434,6 +511,56 @@ export default function CashRegisterPage() {
             className="w-full mt-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-40 flex items-center justify-center gap-2 transition shadow-md shadow-indigo-200/40">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save sales entry
           </button>
+
+          {breakdown && (
+            <div className="mt-5 border border-gray-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <ShoppingBag className="w-4 h-4 text-[#0f172a]" />
+                <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Shopify breakdown</h4>
+                {register?.shopify_pulled_at && <span className="text-[10px] text-gray-400">pulled {new Date(register.shopify_pulled_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-blue-50 rounded-lg p-3">
+                  <p className="text-[10px] font-semibold text-blue-600 uppercase">Online</p>
+                  <p className="text-base font-bold text-blue-800">{fmtINR(breakdown.online?.sales || 0)}</p>
+                  <p className="text-[10px] text-blue-400">{breakdown.online?.orders || 0} orders</p>
+                </div>
+                <div className="bg-amber-50 rounded-lg p-3">
+                  <p className="text-[10px] font-semibold text-amber-600 uppercase">Offline (walk-in + WhatsApp)</p>
+                  <p className="text-base font-bold text-amber-800">{fmtINR(breakdown.offline?.sales || 0)}</p>
+                  <p className="text-[10px] text-amber-400">{breakdown.offline?.orders || 0} orders</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase mb-2">Online payment (gateway)</p>
+                  {Object.entries(breakdown.payments_online || {}).length === 0 ? <p className="text-xs text-gray-300">—</p> :
+                    Object.entries(breakdown.payments_online || {}).map(([k, v]: any) => (
+                      <div key={k} className="flex justify-between text-xs py-1 border-b border-gray-50">
+                        <span className="text-gray-600 capitalize">{k.replace(/_/g, " ")}</span>
+                        <span className="font-semibold text-gray-800">{fmtINR(v.amount)} <span className="text-gray-300">· {v.orders}</span></span>
+                      </div>
+                    ))}
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase mb-2">Offline payment (tag)</p>
+                  {Object.entries(breakdown.payments_offline || {}).length === 0 ? <p className="text-xs text-gray-300">—</p> :
+                    Object.entries(breakdown.payments_offline || {}).map(([k, v]: any) => (
+                      <div key={k} className="flex justify-between text-xs py-1 border-b border-gray-50">
+                        <span className={`${k === "Untagged" ? "text-red-500" : "text-gray-600"}`}>{k}</span>
+                        <span className="font-semibold text-gray-800">{fmtINR(v.amount)} <span className="text-gray-300">· {v.orders}</span></span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+              {breakdown.untagged_payment_orders?.length > 0 && (
+                <div className="mt-3 p-2.5 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-red-700">{breakdown.untagged_payment_orders.length} offline order(s) have no payment tag — add a payment tag in Shopify and re-pull: <span className="font-mono">{breakdown.untagged_payment_orders.join(", ")}</span></p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -603,6 +730,48 @@ export default function CashRegisterPage() {
             <p className="text-lg font-bold text-indigo-700 mt-2">= {fmtINR(cashInHand)} cash in hand</p>
             <p className="text-xs text-gray-400 mt-1">Net P&L: Sales {fmtINR(salesNum)} − Expenses {fmtINR(totalExp)} = <strong className={salesNum - totalExp >= 0 ? "text-emerald-600" : "text-red-500"}>{fmtINR(salesNum - totalExp)}</strong></p>
           </div>
+        </div>
+      )}
+
+      {/* ── TAB: Pending payments ───────────────────────────────── */}
+      {tab === "pending" && (
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2"><Clock className="w-4 h-4 text-amber-500" />Pending payments</h3>
+            <span className="text-xs text-gray-400">{pending.length} open</span>
+          </div>
+          <p className="text-xs text-gray-400 mb-4">Shopify orders not yet marked paid. They stay listed until you mark them paid in Shopify and re-pull.</p>
+          {pending.length === 0 ? (
+            <div className="text-center py-10">
+              <CheckCircle2 className="w-8 h-8 text-emerald-300 mx-auto mb-2" />
+              <p className="text-sm text-gray-400">No pending payments</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {pending.map(p => {
+                const ageDays = Math.max(0, Math.floor((Date.now() - new Date(p.first_seen_date + "T00:00").getTime()) / 86400000));
+                return (
+                  <div key={p.shopify_order_id} className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl border border-amber-100">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-amber-200 text-amber-500 flex-shrink-0">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">{p.order_name} <span className="text-xs font-normal text-gray-400">· {p.customer_name || "—"}</span></p>
+                      <p className="text-xs text-gray-500 capitalize">{p.channel} · {p.financial_status?.replace(/_/g, " ").toLowerCase()} · {new Date(p.order_created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</p>
+                    </div>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${ageDays >= 3 ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700"}`}>
+                      {ageDays === 0 ? "today" : `${ageDays}d`}
+                    </span>
+                    <span className="text-sm font-bold text-gray-800 min-w-[70px] text-right">{fmtINR(p.total)}</span>
+                  </div>
+                );
+              })}
+              <div className="flex justify-between pt-3 mt-1 border-t border-gray-100">
+                <span className="text-xs text-gray-500 uppercase font-semibold">Total pending</span>
+                <span className="text-sm font-bold text-amber-600">{fmtINR(pending.reduce((s, p) => s + (p.total || 0), 0))}</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
