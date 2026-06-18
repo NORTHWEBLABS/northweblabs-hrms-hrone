@@ -69,7 +69,6 @@ query Orders($q: String!, $cursor: String) {
         app { name }
         paymentGatewayNames
         tags
-        customer { displayName }
       }
     }
     pageInfo { hasNextPage endCursor }
@@ -168,7 +167,7 @@ export async function POST(req: Request) {
           shopify_order_id: numId,
           org_id: orgId,
           order_name: o.name,
-          customer_name: o.customer?.displayName || null,
+          customer_name: null,
           channel: isOffline ? "offline" : "online",
           total: amount,
           order_created_at: o.createdAt,
