@@ -202,21 +202,16 @@ export default function MePage() {
       }).select().single();
       if (e) { setExpError(e.message); setExpSaving(false); return; }
 
-      // 2. Resolve approver: reporting manager, else owner/admin/hr
+      // 2. Resolve approver: reimbursements route to OWNER/ADMIN (not the reporting manager)
       let approverUserId = "", approverName = "";
-      if (empId) {
-        const { data: empFull } = await sb.from("employees").select("reporting_manager_id").eq("id", empId).maybeSingle();
-        if (empFull?.reporting_manager_id) {
-          const { data: mgr } = await sb.from("employees").select("full_name, email").eq("id", empFull.reporting_manager_id).maybeSingle();
-          if (mgr?.email) {
-            const { data: mgrUser } = await sb.from("users").select("id").eq("email", mgr.email).eq("org_id", orgId).maybeSingle();
-            if (mgrUser) { approverUserId = mgrUser.id; approverName = mgr.full_name || ""; }
-          }
-        }
-      }
-      if (!approverUserId) {
-        const { data: admins } = await sb.from("users").select("id, full_name").eq("org_id", orgId).in("role", ["owner", "admin", "hr"]).limit(1);
+      {
+        const { data: admins } = await sb.from("users").select("id, full_name").eq("org_id", orgId).in("role", ["owner", "admin"]).order("role").limit(1);
         if (admins?.length) { approverUserId = admins[0].id; approverName = admins[0].full_name || "Admin"; }
+      }
+      // Fallback to HR only if no owner/admin exists in the org
+      if (!approverUserId) {
+        const { data: hrUsers } = await sb.from("users").select("id, full_name").eq("org_id", orgId).eq("role", "hr").limit(1);
+        if (hrUsers?.length) { approverUserId = hrUsers[0].id; approverName = hrUsers[0].full_name || "HR"; }
       }
 
       // 3. Approval request — payload carries expense_id so act/route flips the expense on approve
@@ -747,7 +742,7 @@ export default function MePage() {
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setShowExpenseModal(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
-              <div><h2 className="text-base font-bold text-gray-900">Claim reimbursement</h2><p className="text-xs text-gray-400">Routed to your manager for approval</p></div>
+              <div><h2 className="text-base font-bold text-gray-900">Claim reimbursement</h2><p className="text-xs text-gray-400">Routed to admin/owner for approval</p></div>
               <button onClick={() => setShowExpenseModal(false)} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
             </div>
             <div className="px-6 py-5 space-y-4">
