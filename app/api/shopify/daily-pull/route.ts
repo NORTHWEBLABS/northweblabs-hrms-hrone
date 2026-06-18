@@ -188,12 +188,42 @@ export async function POST(req: Request) {
 
     const breakdown = { online, offline, offline_sub, payments_online, payments_offline, untagged_payment_orders };
 
-    // ── 3) Write breakdown onto the day's register row (upsert by org+date) ──
+    // ── Structured columns: derive the same channel/payment split the manual save used,
+    //    so the register reflects the pull with no separate "Save" step. ──
+    const onlineMatch = (re: RegExp) =>
+      Object.entries(payments_online).filter(([k]) => re.test(k.toLowerCase())).reduce((s, [, v]) => s + (v.amount || 0), 0);
+    const payCashCol = round2((payments_offline["Cash"]?.amount || 0) + (payments_offline["Cash deposit"]?.amount || 0) + onlineMatch(/cash|cod/));
+    const payUpiCol = round2((payments_offline["UPI"]?.amount || 0) + onlineMatch(/upi/));
+    const payCardCol = round2((payments_offline["Card"]?.amount || 0) + onlineMatch(/card/));
+    const allPay = [...Object.values(payments_online), ...Object.values(payments_offline)].reduce((s, v) => s + (v.amount || 0), 0);
+    const payGatewayCol = Math.max(0, round2(allPay - payCashCol - payUpiCol - payCardCol));
+    const walkinAmt = round2(offline_sub.walkin.sales + offline_sub.untagged_channel.sales);
+    const walkinOrd = offline_sub.walkin.orders + offline_sub.untagged_channel.orders;
+
+    const registerCols = {
+      shopify_breakdown: breakdown,
+      shopify_pulled_at: nowIso,
+      total_sales: round2(online.sales + offline.sales),
+      total_orders: online.orders + offline.orders,
+      walkin_amount: walkinAmt,
+      walkin_orders: walkinOrd,
+      online_amount: round2(online.sales),
+      online_orders: online.orders,
+      whatsapp_amount: round2(offline_sub.whatsapp.sales),
+      whatsapp_orders: offline_sub.whatsapp.orders,
+      pay_cash: payCashCol,
+      pay_upi: payUpiCol,
+      pay_card: payCardCol,
+      pay_gateway: payGatewayCol,
+      updated_at: nowIso,
+    };
+
+    // ── 3) Write breakdown + structured columns onto the day's register row (upsert by org+date) ──
     const { data: reg } = await sb.from("cash_register").select("id").eq("org_id", orgId).eq("date", date).maybeSingle();
     if (reg) {
-      await sb.from("cash_register").update({ shopify_breakdown: breakdown, shopify_pulled_at: nowIso }).eq("id", reg.id);
+      await sb.from("cash_register").update(registerCols).eq("id", reg.id);
     } else {
-      await sb.from("cash_register").insert({ org_id: orgId, date, shopify_breakdown: breakdown, shopify_pulled_at: nowIso });
+      await sb.from("cash_register").insert({ org_id: orgId, date, ...registerCols });
     }
 
     // ── 4) Pending watchlist: upsert today's pendings, resolve today's paid ──

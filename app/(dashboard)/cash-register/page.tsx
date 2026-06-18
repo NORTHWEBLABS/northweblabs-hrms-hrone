@@ -442,7 +442,7 @@ export default function CashRegisterPage() {
               <p className="text-xs text-gray-400 mt-0.5">Pulled from Shopify — online &amp; offline totals with the full payment split.</p>
             </div>
             <div className="flex items-center gap-3">
-              {register?.shopify_pulled_at && <span className="text-[10px] text-gray-400 whitespace-nowrap">pulled {new Date(register.shopify_pulled_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
+              {register?.shopify_pulled_at && <span className="text-[10px] text-gray-400 whitespace-nowrap">pulled {new Date(register.shopify_pulled_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST</span>}
               <button onClick={pullShopify} disabled={pulling}
                 className="flex items-center gap-1.5 px-3 py-2 bg-[#0f172a] text-white text-xs font-semibold rounded-lg hover:bg-[#1e293b] disabled:opacity-50 whitespace-nowrap">
                 {pulling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}{breakdown ? "Re-pull" : "Pull from Shopify"}
@@ -498,7 +498,7 @@ export default function CashRegisterPage() {
                       Object.entries(breakdown.payments_online || {}).map(([k, v]: any) => (
                         <div key={k} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
                           <span className="text-gray-600 capitalize">{k.replace(/_/g, " ")}</span>
-                          <span className="font-semibold text-gray-800">{fmtINR(v.amount)} <span className="text-gray-300 font-normal">· {v.orders}</span></span>
+                          <span className="font-semibold text-gray-800">{fmtINR(v.amount)}<span className="ml-2.5 text-[10px] text-gray-400 font-normal">{v.orders} ord</span></span>
                         </div>
                       ))}
                   </div>
@@ -508,7 +508,7 @@ export default function CashRegisterPage() {
                       Object.entries(breakdown.payments_offline || {}).map(([k, v]: any) => (
                         <div key={k} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
                           <span className={k === "Untagged" ? "text-red-500" : "text-gray-600"}>{k}</span>
-                          <span className="font-semibold text-gray-800">{fmtINR(v.amount)} <span className="text-gray-300 font-normal">· {v.orders}</span></span>
+                          <span className="font-semibold text-gray-800">{fmtINR(v.amount)}<span className="ml-2.5 text-[10px] text-gray-400 font-normal">{v.orders} ord</span></span>
                         </div>
                       ))}
                   </div>
@@ -526,11 +526,6 @@ export default function CashRegisterPage() {
                   <p className="text-[11px] text-red-700">{breakdown.untagged_payment_orders.length} offline order(s) have no payment tag — add a payment tag in Shopify and re-pull: <span className="font-mono">{breakdown.untagged_payment_orders.join(", ")}</span></p>
                 </div>
               )}
-
-              <button onClick={saveSales} disabled={saving || !breakdown}
-                className="w-full py-3 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-40 flex items-center justify-center gap-2 transition shadow-md shadow-indigo-200/40">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save sales entry
-              </button>
             </>
           )}
         </div>
