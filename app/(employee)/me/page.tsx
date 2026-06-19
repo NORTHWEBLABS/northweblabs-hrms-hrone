@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import { captureAndEvaluate } from "@/lib/geo";
+import { fetchWorkingDays, isoDow, isoLocal } from "@/lib/schedule";
 import HeadSelect, { Head } from "@/components/HeadSelect";
 import {
   Clock, Calendar, Wallet, Bell, CheckCircle2, AlertCircle, Loader2,
@@ -49,7 +50,7 @@ export default function MePage() {
   const monthName = now.toLocaleDateString("en-IN", { month: "long" });
   const monthNum = now.getMonth() + 1;
   const yearNum = now.getFullYear();
-  const todayStr = now.toISOString().split("T")[0];
+  const todayStr = isoLocal(now);
 
   const [user, setUser] = useState<UserProfile | null>(null);
   const [emp, setEmp] = useState<EmpRecord | null>(null);
@@ -81,7 +82,7 @@ export default function MePage() {
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expCategories, setExpCategories] = useState<ExpCategory[]>([]);
   const [heads, setHeads] = useState<Head[]>([]);
-  const [expForm, setExpForm] = useState({ title: "", amount: "", category_id: "", head_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
+  const [expForm, setExpForm] = useState({ title: "", amount: "", category_id: "", head_id: "", date: isoLocal(new Date()), description: "", payment_method: "upi", vendor: "" });
   const [expSaving, setExpSaving] = useState(false);
   const [expError, setExpError] = useState("");
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
@@ -241,7 +242,7 @@ export default function MePage() {
       }
 
       setShowExpenseModal(false);
-      setExpForm({ title: "", amount: "", category_id: "", head_id: "", date: new Date().toISOString().split("T")[0], description: "", payment_method: "upi", vendor: "" });
+      setExpForm({ title: "", amount: "", category_id: "", head_id: "", date: isoLocal(new Date()), description: "", payment_method: "upi", vendor: "" });
       setToast({ msg: "Reimbursement submitted for approval", type: "success" });
     } catch (err: any) { setExpError(err.message || "Failed to submit"); }
     finally { setExpSaving(false); }
@@ -319,25 +320,45 @@ export default function MePage() {
         if (todayAtt.check_out) setCheckedOutTime(new Date(todayAtt.check_out).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }));
       }
 
-      // This month attendance
+      // Work schedule — working weekdays for this employee (override -> org default -> Mon–Sat fallback)
+      const workingDays = await fetchWorkingDays(sb, orgId, empId);
+
+      // This month attendance — count ACTUAL sign-ins (a day with a check_in)
+      const lastDom = new Date(yearNum, monthNum, 0).getDate(); // real last day of month (fixes the -31 bug)
       const monthStart = `${yearNum}-${String(monthNum).padStart(2, "0")}-01`;
-      const monthEnd = `${yearNum}-${String(monthNum).padStart(2, "0")}-31`;
-      const { data: monthAtt } = await sb.from("attendance").select("date, status")
+      const monthEnd = `${yearNum}-${String(monthNum).padStart(2, "0")}-${String(lastDom).padStart(2, "0")}`;
+      const { data: monthAtt } = await sb.from("attendance").select("date, status, check_in")
         .eq("employee_id", empId).gte("date", monthStart).lte("date", monthEnd);
-      const presentDays = (monthAtt || []).filter(a => ["present", "late", "wfh", "half_day"].includes(a.status)).length;
-      const workDays = (() => { let d = 0; const s = new Date(monthStart); const e = new Date(Math.min(now.getTime(), new Date(monthEnd).getTime())); while (s <= e) { if (s.getDay() > 0 && s.getDay() < 6) d++; s.setDate(s.getDate() + 1); } return d; })();
+      const presentDays = (monthAtt || []).filter(a => !!a.check_in).length;
+      // Total = scheduled working days elapsed so far this month
+      const workDays = (() => {
+        let d = 0;
+        const s = new Date(yearNum, monthNum - 1, 1);
+        const e = new Date(yearNum, monthNum - 1, now.getDate());
+        while (s <= e) { if (workingDays.includes(isoDow(s))) d++; s.setDate(s.getDate() + 1); }
+        return d;
+      })();
       setMonthAttendance({ present: presentDays, total: workDays });
 
-      // This week attendance (Mon-Sat)
+      // This week strip (Mon–Sat). present=green, absent=red, weekly-off=yellow, today/future=neutral.
+      const dow = isoDow(now);
+      const monday = new Date(now); monday.setDate(now.getDate() - dow + 1); monday.setHours(0, 0, 0, 0);
+      const sat = new Date(monday); sat.setDate(monday.getDate() + 5);
+      const { data: weekAtt } = await sb.from("attendance").select("date, check_in")
+        .eq("employee_id", empId).gte("date", isoLocal(monday)).lte("date", isoLocal(sat));
+      const checkedDates = new Set((weekAtt || []).filter(a => !!a.check_in).map(a => a.date));
+      const todayMid = new Date(now); todayMid.setHours(0, 0, 0, 0);
       const weekMap: Record<number, string> = {};
-      const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay();
-      const monday = new Date(now); monday.setDate(now.getDate() - dayOfWeek + 1);
       for (let i = 0; i < 6; i++) {
         const d = new Date(monday); d.setDate(monday.getDate() + i);
-        const ds = d.toISOString().split("T")[0];
-        const att = (monthAtt || []).find(a => a.date === ds);
-        if (att) weekMap[i + 1] = att.status;
-        else if (d < now) weekMap[i + 1] = d.getDay() === 0 ? "weekend" : "absent";
+        const wd = i + 1; // Mon=1 … Sat=6
+        const working = workingDays.includes(wd);
+        const present = checkedDates.has(isoLocal(d));
+        if (!working) weekMap[wd] = "off";
+        else if (present) weekMap[wd] = "present";
+        else if (d < todayMid) weekMap[wd] = "absent";
+        else if (d.getTime() === todayMid.getTime()) weekMap[wd] = "today";
+        else weekMap[wd] = "future";
       }
       setWeekAttendance(weekMap);
 
@@ -383,6 +404,7 @@ export default function MePage() {
       if (inserted?.id) setTodayAttId(inserted.id);
       setCheckInTime(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }));
       setMonthAttendance(p => ({ ...p, present: p.present + 1 }));
+      setWeekAttendance(p => ({ ...p, [isoDow(now)]: "present" }));
     }
   };
 
@@ -507,19 +529,26 @@ export default function MePage() {
                   <p className="text-xs font-semibold text-gray-500 mb-3">This week</p>
                   <div className="flex gap-2">
                     {["M","T","W","T","F","S"].map((d, i) => {
-                      const dayIdx = i + 1;
-                      const todayDow = now.getDay() === 0 ? 7 : now.getDay();
-                      const isToday = dayIdx === todayDow;
-                      const status = weekAttendance[dayIdx];
-                      const isPast = dayIdx < todayDow;
-                      const isPresent = status && ["present","late","wfh","half_day"].includes(status);
+                      const wd = i + 1; // Mon=1 … Sat=6
+                      const todayDow = isoDow(now);
+                      const isToday = wd === todayDow;
+                      const state = weekAttendance[wd] || "future";
+                      let cls = "bg-gray-100 text-gray-400"; // future / neutral
+                      if (state === "present") cls = isToday ? "bg-emerald-500 text-white" : "bg-emerald-100 text-emerald-600";
+                      else if (state === "absent") cls = "bg-red-100 text-red-500";
+                      else if (state === "off") cls = "bg-yellow-100 text-yellow-600";
+                      else if (state === "today") cls = "bg-amber-100 text-amber-600 ring-2 ring-amber-300";
                       return (
-                        <div key={d + i} className={`flex-1 h-9 rounded-lg flex items-center justify-center text-xs font-bold transition-all
-                          ${isToday ? (checkedIn ? "bg-emerald-500 text-white" : "bg-amber-100 text-amber-600 ring-2 ring-amber-300")
-                            : isPresent ? "bg-emerald-100 text-emerald-600"
-                            : isPast ? "bg-red-100 text-red-400" : "bg-gray-100 text-gray-400"}`}>{d}</div>
+                        <div key={d + i}
+                          title={state === "off" ? "Weekly off" : state === "present" ? "Present" : state === "absent" ? "Absent" : state === "today" ? "Today — not checked in" : ""}
+                          className={`flex-1 h-9 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${cls}`}>{d}</div>
                       );
                     })}
+                  </div>
+                  <div className="flex items-center gap-3 mt-3 flex-wrap">
+                    <span className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-2 h-2 rounded-sm bg-emerald-400" />Present</span>
+                    <span className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-2 h-2 rounded-sm bg-red-300" />Absent</span>
+                    <span className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-2 h-2 rounded-sm bg-yellow-300" />Weekly off</span>
                   </div>
                 </div>
               </div>
