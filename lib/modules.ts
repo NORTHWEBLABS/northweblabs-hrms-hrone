@@ -20,6 +20,7 @@ export const MODULES: ModuleDef[] = [
   { key: "/org-structure", label: "Org structure", group: "People", configurable: true, defaultRoles: ["admin", "hr"] },
   // HR
   { key: "/attendance", label: "Attendance", group: "HR", configurable: true, defaultRoles: ["admin", "hr", "manager"] },
+  { key: "/work-schedule", label: "Work schedule", group: "HR", configurable: true, defaultRoles: ["admin", "hr"] },
   { key: "/payroll", label: "Payroll", group: "HR", configurable: true, defaultRoles: ["admin", "hr"] },
   { key: "/loans", label: "Loans & advances", group: "HR", configurable: true, defaultRoles: ["admin", "hr"] },
   { key: "/leaves", label: "Leaves", group: "HR", configurable: true, defaultRoles: ["admin", "hr", "manager"] },
