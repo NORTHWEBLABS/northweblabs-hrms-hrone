@@ -287,7 +287,7 @@ export default function WorkSchedulePage() {
                     <div className="relative">
                       <select value={val} onChange={ev => onAssign(e.id, ev.target.value)}
                         className="appearance-none pl-3 pr-8 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 min-w-[180px]">
-                        <option value="">{defaultSchedule ? `Standard — ${defaultSchedule.name}` : "Standard (default)"}</option>
+                        <option value="">{defaultSchedule ? `Default · ${defaultSchedule.name}` : "Standard (default)"}</option>
                         {schedules.filter(s => !s.is_default).map(s => (
                           <option key={s.id} value={s.id}>{s.name}</option>
                         ))}

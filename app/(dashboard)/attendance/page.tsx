@@ -8,6 +8,7 @@ import {
   Users, UserCheck, UserX, Coffee, Calendar, Edit2,
   ChevronDown, Search, Wifi, WifiOff,
 } from "lucide-react";
+import { isoDow, DEFAULT_WORKING_DAYS } from "@/lib/schedule";
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
 function useSupabase() {
@@ -71,7 +72,7 @@ function getMonthDays(year: number, month: number): Date[] {
 }
 
 function isoDate(d: Date): string {
-  return d.toISOString().split("T")[0];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function getInitials(name: string): string {
@@ -127,10 +128,10 @@ function StatusCell({
       <button
         onClick={onClick}
         className={`h-8 w-full rounded flex items-center justify-center text-xs border border-dashed
-          ${isWeekend ? "border-gray-200 bg-gray-50 text-gray-300" : "border-gray-300 bg-white text-gray-300 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-400"}
+          ${isWeekend ? "border-yellow-200 bg-yellow-50 text-yellow-400" : "border-gray-300 bg-white text-gray-300 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-400"}
           ${isToday ? "ring-2 ring-indigo-400 ring-offset-1" : ""}
           transition-colors`}
-        title="Click to mark attendance"
+        title={isWeekend ? "Weekly off — click to mark" : "Click to mark attendance"}
       >
         {isWeekend ? "—" : "+"}
       </button>
@@ -544,11 +545,15 @@ function WeeklyView({
   employees,
   attendanceMap,
   todayStr,
+  defaultDays,
+  daysFor,
   onMark,
 }: {
   employees: Employee[];
   attendanceMap: AttendanceMap;
   todayStr: string;
+  defaultDays: number[];
+  daysFor: (id: string) => number[];
   onMark: (emp: Employee, date: string) => void;
 }) {
   // Get current week Mon–Sun
@@ -565,6 +570,8 @@ function WeeklyView({
   };
 
   const weekDays = getWeekDays();
+  const isoOf = (d: Date) => ((d.getDay() + 6) % 7) + 1;
+  const headerOff = (d: Date) => !defaultDays.includes(isoOf(d));
 
   const calcHours = (rec: AttendanceRecord | undefined): string => {
     if (!rec?.check_in || !rec?.check_out) return "—";
@@ -601,10 +608,10 @@ function WeeklyView({
               {weekDays.map(d => {
                 const ds = isoDate(d);
                 const isToday = ds === todayStr;
-                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                const isWeekend = headerOff(d);
                 return (
                   <th key={ds} className={`text-center text-xs font-medium py-2.5 px-2
-                    ${isToday ? "bg-indigo-50 text-indigo-700" : isWeekend ? "bg-gray-50/50 text-gray-400" : "text-gray-600"}`}>
+                    ${isToday ? "bg-indigo-50 text-indigo-700" : isWeekend ? "bg-yellow-50/50 text-yellow-500" : "text-gray-600"}`}>
                     <div>{DAYS[(d.getDay()+6)%7]}</div>
                     <div className={`text-sm font-bold mt-0.5 ${isToday ? "w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center mx-auto" : ""}`}>
                       {d.getDate()}
@@ -633,7 +640,7 @@ function WeeklyView({
                   const ds = isoDate(d);
                   const rec = attendanceMap[`${emp.id}_${ds}`];
                   const isFuture = ds > todayStr;
-                  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                  const isWeekend = !daysFor(emp.id).includes(isoOf(d));
                   const isToday = ds === todayStr;
                   const cfg = rec ? STATUS_CONFIG[rec.status] : null;
                   return (
@@ -643,7 +650,7 @@ function WeeklyView({
                         disabled={isFuture}
                         className={`w-full rounded-lg px-1 py-2 flex flex-col items-center gap-0.5 transition-all
                           ${isFuture ? "opacity-30 cursor-default" : "hover:opacity-80 cursor-pointer"}
-                          ${cfg ? `${cfg.bg} ${cfg.border} border` : isWeekend ? "bg-gray-50 border border-gray-100" : "border border-dashed border-gray-200 hover:border-indigo-300"}`}
+                          ${cfg ? `${cfg.bg} ${cfg.border} border` : isWeekend ? "bg-yellow-50 border border-yellow-100" : "border border-dashed border-gray-200 hover:border-indigo-300"}`}
                       >
                         {cfg
                           ? <>
@@ -675,6 +682,7 @@ function EmployeeDetailView({
   days,
   todayStr,
   monthLabel,
+  daysFor,
   onMark,
 }: {
   employees: Employee[];
@@ -682,10 +690,13 @@ function EmployeeDetailView({
   days: Date[];
   todayStr: string;
   monthLabel: string;
+  daysFor: (id: string) => number[];
   onMark: (emp: Employee, date: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string>(employees[0]?.id ?? "");
   const emp = employees.find(e => e.id === selectedId);
+  const myDays = emp ? daysFor(emp.id) : DEFAULT_WORKING_DAYS;
+  const isOff = (d: Date) => !myDays.includes(((d.getDay() + 6) % 7) + 1);
 
   const records = useMemo(() => {
     if (!emp) return [];
@@ -696,7 +707,7 @@ function EmployeeDetailView({
     }));
   }, [emp, days, attendanceMap]);
 
-  const workDays = days.filter(d => d.getDay() !== 0 && d.getDay() !== 6 && isoDate(d) <= todayStr).length;
+  const workDays = days.filter(d => myDays.includes(((d.getDay() + 6) % 7) + 1) && isoDate(d) <= todayStr).length;
   const presentDays  = records.filter(r => r.rec?.status === "present" || r.rec?.status === "late").length;
   const absentDays   = records.filter(r => r.rec?.status === "absent").length;
   const halfDays     = records.filter(r => r.rec?.status === "half_day").length;
@@ -754,7 +765,7 @@ function EmployeeDetailView({
         </div>
         <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto">
           {records.filter(r => isoDate(r.date) <= todayStr).reverse().map(({ date, dateStr, rec }) => {
-            const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+            const isWeekend = isOff(date);
             const cfg = rec ? STATUS_CONFIG[rec.status] : null;
             return (
               <div key={dateStr} className={`flex items-center px-5 py-2.5 hover:bg-gray-50 transition-colors ${isWeekend ? "opacity-60" : ""}`}>
@@ -762,7 +773,7 @@ function EmployeeDetailView({
                   <p className="text-xs font-semibold text-gray-700">
                     {date.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}
                   </p>
-                  {isWeekend && <p className="text-xs text-gray-400">Weekend</p>}
+                  {isWeekend && <p className="text-xs text-yellow-500">Weekly off</p>}
                 </div>
                 <div className="flex-1 flex items-center gap-3">
                   {cfg
@@ -797,13 +808,18 @@ function DepartmentSummaryView({
   attendanceMap,
   days,
   todayStr,
+  defaultDays,
+  daysFor,
 }: {
   employees: Employee[];
   attendanceMap: AttendanceMap;
   days: Date[];
   todayStr: string;
+  defaultDays: number[];
+  daysFor: (id: string) => number[];
 }) {
-  const workDaysPassed = days.filter(d => d.getDay() !== 0 && d.getDay() !== 6 && isoDate(d) <= todayStr).length;
+  const passedFor = (id: string) => days.filter(d => daysFor(id).includes(((d.getDay() + 6) % 7) + 1) && isoDate(d) <= todayStr).length;
+  const workDaysPassed = days.filter(d => defaultDays.includes(((d.getDay() + 6) % 7) + 1) && isoDate(d) <= todayStr).length;
 
   const depts = useMemo(() => {
     const map: Record<string, Employee[]> = {};
@@ -814,7 +830,7 @@ function DepartmentSummaryView({
     });
 
     return Object.entries(map).map(([dept, emps]) => {
-      const totalPossible = emps.length * workDaysPassed;
+      const totalPossible = emps.reduce((a, e) => a + passedFor(e.id), 0);
       const totalPresent = emps.reduce((acc, emp) => {
         return acc + days.filter(d => {
           const ds = isoDate(d);
@@ -922,6 +938,8 @@ export default function AttendancePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendanceMap, setAttendanceMap] = useState<AttendanceMap>({});
   const [orgId, setOrgId] = useState("");
+  const [workingDays, setWorkingDays] = useState<number[]>(DEFAULT_WORKING_DAYS);
+  const [empDays, setEmpDays] = useState<Record<string, number[]>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState("");
@@ -934,6 +952,10 @@ export default function AttendancePage() {
   const [markModal, setMarkModal] = useState<{ employee: Employee; date: string } | null>(null);
   const [csvModal, setCsvModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const daysFor = (id: string) => empDays[id] || workingDays;
+  const isOffDay = (d: Date) => !workingDays.includes(isoDow(d)); // header / global (org default)
+  const isOffFor = (id: string, d: Date) => !daysFor(id).includes(isoDow(d));
 
   // ── Days in month ───────────────────────────────────────────────────────────
   const days = useMemo(() => getMonthDays(year, month), [year, month]);
@@ -964,6 +986,23 @@ export default function AttendancePage() {
     try {
       const oid = await resolveOrg();
       if (!oid) return;
+
+      // Work schedules: org default + per-employee overrides (drives % denominators + weekly-off shading)
+      let defDays: number[] = DEFAULT_WORKING_DAYS;
+      const empMap: Record<string, number[]> = {};
+      try {
+        const [{ data: scheds }, { data: assigns }] = await Promise.all([
+          supabase.from("work_schedules").select("id, working_days, is_default").eq("org_id", oid),
+          supabase.from("employee_work_schedule").select("employee_id, schedule_id").eq("org_id", oid),
+        ]);
+        const byId: Record<string, number[]> = {};
+        (scheds || []).forEach((s: any) => { byId[s.id] = s.working_days; });
+        const def = (scheds || []).find((s: any) => s.is_default);
+        if (def?.working_days?.length) defDays = def.working_days;
+        (assigns || []).forEach((a: any) => { if (byId[a.schedule_id]) empMap[a.employee_id] = byId[a.schedule_id]; });
+      } catch { /* tables not migrated yet — fall back to default */ }
+      setWorkingDays(defDays);
+      setEmpDays(empMap);
 
       const from = `${year}-${String(month + 1).padStart(2, "0")}-01`;
       const lastDay = new Date(year, month + 1, 0).getDate();
@@ -1073,7 +1112,8 @@ export default function AttendancePage() {
   const todayPresent = employees.filter(e => attendanceMap[`${e.id}_${todayStr}`]?.status === "present").length;
   const todayAbsent = employees.filter(e => attendanceMap[`${e.id}_${todayStr}`]?.status === "absent").length;
   const todayUnmarked = employees.filter(e => !attendanceMap[`${e.id}_${todayStr}`]).length;
-  const monthWorkDays = days.filter(d => { const dow = d.getDay(); return dow !== 0 && dow !== 6; }).length;
+  const monthWorkDays = days.filter(d => workingDays.includes(isoDow(d))).length;
+  const monthPossible = employees.reduce((a, e) => a + days.filter(d => daysFor(e.id).includes(isoDow(d))).length, 0);
   const totalRecords = Object.values(attendanceMap).filter(r => r.status === "present" || r.status === "late").length;
 
   // ── Grid: first day offset ────────────────────────────────────────────────────
@@ -1140,7 +1180,7 @@ export default function AttendancePage() {
             { label: "Present today", value: todayPresent, sub: `of ${employees.length} employees`, icon: <UserCheck className="w-4 h-4" />, tc: "text-emerald-600", bc: "bg-emerald-50" },
             { label: "Absent today", value: todayAbsent, sub: "marked absent", icon: <UserX className="w-4 h-4" />, tc: "text-red-500", bc: "bg-red-50" },
             { label: "Unmarked today", value: todayUnmarked, sub: "not yet marked", icon: <Clock className="w-4 h-4" />, tc: "text-amber-600", bc: "bg-amber-50" },
-            { label: "Month attendance", value: `${totalRecords}`, sub: `of ${employees.length * monthWorkDays} possible`, icon: <Calendar className="w-4 h-4" />, tc: "text-indigo-600", bc: "bg-indigo-50" },
+            { label: "Month attendance", value: `${totalRecords}`, sub: `of ${monthPossible} possible`, icon: <Calendar className="w-4 h-4" />, tc: "text-indigo-600", bc: "bg-indigo-50" },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-3">
               <div className={`w-9 h-9 rounded-lg ${s.bc} ${s.tc} flex items-center justify-center flex-shrink-0`}>{s.icon}</div>
@@ -1169,6 +1209,8 @@ export default function AttendancePage() {
           employees={filteredEmployees}
           attendanceMap={attendanceMap}
           todayStr={todayStr}
+          defaultDays={workingDays}
+          daysFor={daysFor}
           onMark={(emp, date) => setMarkModal({ employee: emp, date })}
         />
       )}
@@ -1180,6 +1222,7 @@ export default function AttendancePage() {
           days={days}
           todayStr={todayStr}
           monthLabel={monthLabel}
+          daysFor={daysFor}
           onMark={(emp, date) => setMarkModal({ employee: emp, date })}
         />
       )}
@@ -1190,6 +1233,8 @@ export default function AttendancePage() {
           attendanceMap={attendanceMap}
           days={days}
           todayStr={todayStr}
+          defaultDays={workingDays}
+          daysFor={daysFor}
         />
       )}
 
@@ -1260,10 +1305,10 @@ export default function AttendancePage() {
                   {/* Day columns */}
                   {days.map(d => {
                     const isToday = isoDate(d) === todayStr;
-                    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                    const isWeekend = isOffDay(d);
                     return (
                       <th key={isoDate(d)} className={`text-center text-xs font-medium py-2 px-1 w-10
-                        ${isToday ? "text-indigo-600 bg-indigo-50" : isWeekend ? "text-gray-400 bg-gray-50/50" : "text-gray-500"}`}>
+                        ${isToday ? "text-indigo-600 bg-indigo-50" : isWeekend ? "text-yellow-500 bg-yellow-50/50" : "text-gray-500"}`}>
                         <div className="flex flex-col items-center gap-0.5">
                           <span className="text-xs opacity-60">{DAYS[(d.getDay() + 6) % 7]}</span>
                           <span className={`text-xs font-bold ${isToday ? "w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center" : ""}`}>
@@ -1283,10 +1328,7 @@ export default function AttendancePage() {
                 {filteredEmployees.map(emp => {
                   const presentCount = days.filter(d => attendanceMap[`${emp.id}_${isoDate(d)}`]?.status === "present").length;
                   const absentCount = days.filter(d => attendanceMap[`${emp.id}_${isoDate(d)}`]?.status === "absent").length;
-                  const workDaysPassed = days.filter(d => {
-                    const dow = d.getDay();
-                    return dow !== 0 && dow !== 6 && new Date(isoDate(d)) <= today;
-                  }).length;
+                  const workDaysPassed = days.filter(d => daysFor(emp.id).includes(isoDow(d)) && new Date(isoDate(d)) <= today).length;
 
                   return (
                     <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
@@ -1308,7 +1350,7 @@ export default function AttendancePage() {
                         const dateStr = isoDate(d);
                         const record = attendanceMap[`${emp.id}_${dateStr}`] ?? null;
                         const isFuture = dateStr > todayStr;
-                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                        const isWeekend = isOffFor(emp.id, d);
                         const isTodayCell = dateStr === todayStr;
 
                         return (
