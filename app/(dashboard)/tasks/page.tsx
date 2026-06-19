@@ -11,7 +11,7 @@ import {
 import {
   Plus, X, Loader2, CheckCircle2, AlertCircle, Flag, Calendar, Clock,
   Search, LayoutGrid, Table as TableIcon, List as ListIcon, RotateCcw,
-  Play, Send, Check, Trash2, ChevronRight, User as UserIcon, Users,
+  Play, Send, Check, Trash2, ChevronRight, User as UserIcon, Users, Palette,
 } from "lucide-react";
 
 /* ─────────── types ─────────── */
@@ -48,13 +48,37 @@ const STATUS_META: Record<Status, { label: string; color: string; bg: string }> 
 };
 const PRIORITY_META: Record<Priority, { label: string; color: string; bg: string }> = {
   none:   { label: "None",   color: "#64748b", bg: "#f1f5f9" },
-  low:    { label: "Low",    color: "#0284c7", bg: "#e0f2fe" },
-  medium: { label: "Medium", color: "#ca8a04", bg: "#fef9c3" },
-  high:   { label: "High",   color: "#ea580c", bg: "#ffedd5" },
-  urgent: { label: "Urgent", color: "#dc2626", bg: "#fee2e2" },
+  low:    { label: "Low",    color: "#0369a1", bg: "#e0f2fe" },
+  medium: { label: "Medium", color: "#a16207", bg: "#fef3c7" },
+  high:   { label: "High",   color: "#c2410c", bg: "#ffedd5" },
+  urgent: { label: "Urgent", color: "#be123c", bg: "#ffe4e6" },
 };
 const PRIORITIES: Priority[] = ["none", "low", "medium", "high", "urgent"];
 const ADMIN_LIKE = ["owner", "admin", "super_admin"];
+
+/* pastel theming — column colors + board background (persisted per browser) */
+type PastelKey = "slate" | "blue" | "amber" | "green" | "pink" | "purple" | "teal" | "rose";
+const COLUMN_PASTELS: Record<PastelKey, { chipBg: string; chipText: string; colBg: string; bar: string }> = {
+  slate:  { chipBg: "#eef2f7", chipText: "#475569", colBg: "#f8fafc", bar: "#94a3b8" },
+  blue:   { chipBg: "#e0f2fe", chipText: "#0369a1", colBg: "#f2f9ff", bar: "#60a5fa" },
+  amber:  { chipBg: "#fef3c7", chipText: "#a16207", colBg: "#fffdf2", bar: "#fbbf24" },
+  green:  { chipBg: "#dcfce7", chipText: "#15803d", colBg: "#f3fdf6", bar: "#4ade80" },
+  pink:   { chipBg: "#fce7f3", chipText: "#be185d", colBg: "#fdf4f9", bar: "#f472b6" },
+  purple: { chipBg: "#ede9fe", chipText: "#6d28d9", colBg: "#f7f5ff", bar: "#a78bfa" },
+  teal:   { chipBg: "#ccfbf1", chipText: "#0f766e", colBg: "#f2fdfb", bar: "#2dd4bf" },
+  rose:   { chipBg: "#ffe4e6", chipText: "#be123c", colBg: "#fff4f5", bar: "#fb7185" },
+};
+const PASTEL_KEYS = Object.keys(COLUMN_PASTELS) as PastelKey[];
+const DEFAULT_COLUMN_COLORS: Record<Status, PastelKey> = { todo: "slate", inprogress: "blue", submitted: "amber", verified: "green" };
+const BOARD_BGS: { key: string; label: string; value: string }[] = [
+  { key: "paper",  label: "Paper",  value: "#f7f8fa" },
+  { key: "white",  label: "White",  value: "#ffffff" },
+  { key: "violet", label: "Violet", value: "#f5f3ff" },
+  { key: "blue",   label: "Sky",    value: "#f0f9ff" },
+  { key: "green",  label: "Mint",   value: "#f0fdf4" },
+  { key: "amber",  label: "Cream",  value: "#fffbeb" },
+  { key: "pink",   label: "Blush",  value: "#fdf2f8" },
+];
 const ASSIGN_ANYONE = ["owner", "admin", "hr", "super_admin"];
 const MANAGER_ROLES = ["owner", "admin", "hr", "manager", "super_admin"];
 
@@ -104,6 +128,11 @@ export default function TasksPage() {
   const [view, setView] = useState<ViewMode>("board");
   const [scope, setScope] = useState<Scope>("mine");
   const [search, setSearch] = useState("");
+
+  // pastel theme (persisted per browser, keyed by org)
+  const [columnColors, setColumnColors] = useState<Record<Status, PastelKey>>(DEFAULT_COLUMN_COLORS);
+  const [boardBg, setBoardBg] = useState<string>("#f7f8fa");
+  const [palette, setPalette] = useState<null | { kind: "bg" } | { kind: "col"; status: Status }>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState<null | Status>(null);
   const [rejectFor, setRejectFor] = useState<Task | null>(null);
@@ -111,6 +140,12 @@ export default function TasksPage() {
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   const flash = (msg: string, type: "success" | "error" = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 2600); };
+
+  // persist theme whenever it changes
+  useEffect(() => {
+    if (!orgId) return;
+    try { localStorage.setItem("taskBoardTheme:" + orgId, JSON.stringify({ columnColors, boardBg })); } catch { /* ignore */ }
+  }, [orgId, columnColors, boardBg]);
 
   const nameOf = useCallback((id: string | null | undefined) => graph.find(e => e.id === id)?.name ?? "—", [graph]);
 
@@ -121,6 +156,16 @@ export default function TasksPage() {
       const email = typeof window !== "undefined" ? localStorage.getItem("userEmail") || "" : "";
       if (!oid) { setLoading(false); return; }
       setOrgId(oid);
+
+      // restore saved board theme
+      try {
+        const raw = localStorage.getItem("taskBoardTheme:" + oid);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved.columnColors) setColumnColors({ ...DEFAULT_COLUMN_COLORS, ...saved.columnColors });
+          if (saved.boardBg) setBoardBg(saved.boardBg);
+        }
+      } catch { /* ignore */ }
 
       // role from users
       let r = "employee";
@@ -135,9 +180,9 @@ export default function TasksPage() {
       const me = email ? await resolveSelfEmployee(sb, email, oid) : null;
       setSelf(me);
 
-      // default scope: managers with reports start on Team
+      // default scope: managers with reports — or admins with no employee row — start on Team
       const reports = me ? reportsUnder(g, me.employeeId) : new Set<string>();
-      if (ADMIN_LIKE.includes(r) || reports.size > 0) setScope("team");
+      if (ADMIN_LIKE.includes(r) || !me || reports.size > 0) setScope("team");
 
       const { data: ts } = await sb.from("tasks").select("*").eq("org_id", oid).order("created_at", { ascending: false });
       setTasks((ts || []) as Task[]);
@@ -299,7 +344,9 @@ export default function TasksPage() {
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div>;
 
-  if (!self) return (
+  // Owners/admins/HR/super_admin can run Tasks without an employee row (they create/assign/verify
+  // and see all org tasks); they just can't be an assignee. Only block a plain employee with no record.
+  if (!self && !isAdminLike && role !== "hr") return (
     <div className="max-w-md mx-auto mt-16 text-center">
       <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
       <p className="text-sm font-semibold text-gray-700">No employee record found for your login</p>
@@ -344,6 +391,25 @@ export default function TasksPage() {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
               className="w-44 pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
           </div>
+          <div className="relative">
+            <button onClick={() => setPalette(palette && (palette as any).kind === "bg" ? null : { kind: "bg" })}
+              title="Board background"
+              className="flex items-center justify-center w-9 h-9 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 text-gray-500">
+              <Palette className="w-4 h-4" />
+            </button>
+            {palette && (palette as any).kind === "bg" && (
+              <div className="absolute right-0 z-50 mt-2 w-44 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 px-1 mb-1.5">Background</div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {BOARD_BGS.map(b => (
+                    <button key={b.key} title={b.label} onClick={() => { setBoardBg(b.value); setPalette(null); }}
+                      className={`h-8 rounded-lg border-2 ${boardBg === b.value ? "border-indigo-500" : "border-gray-200"}`}
+                      style={{ background: b.value }} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <button onClick={() => setShowCreate("todo")}
             className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
             <Plus className="w-4 h-4" />New task
@@ -353,46 +419,73 @@ export default function TasksPage() {
 
       {/* views */}
       {view === "board" && (
-        <div className="flex gap-3 overflow-x-auto pb-3">
+        <div className="flex gap-4 overflow-x-auto pb-3 rounded-2xl p-3 -mx-1 transition-colors" style={{ background: boardBg }}>
           {LANES.map(lane => {
             const items = scoped.filter(t => t.status === lane.id);
+            const pk = columnColors[lane.id];
+            const pal = COLUMN_PASTELS[pk];
             return (
               <div key={lane.id}
                 onDragOver={e => e.preventDefault()}
                 onDrop={() => { if (draggingId) { const t = tasks.find(x => x.id === draggingId); if (t) requestStatusChange(t, lane.id); setDraggingId(null); } }}
-                className="flex w-72 shrink-0 flex-col rounded-xl border border-gray-200 bg-gray-50/60">
-                <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200">
-                  <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ background: lane.bg, color: lane.color }}>{lane.label}</span>
-                  <span className="text-xs text-gray-400">{items.length}</span>
+                className="flex w-[290px] shrink-0 flex-col rounded-2xl border border-black/5 shadow-sm"
+                style={{ background: pal.colBg }}>
+                {/* column header */}
+                <div className="relative flex items-center gap-2 px-3 pt-3 pb-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: pal.bar }} />
+                  <span className="text-sm font-bold text-gray-800">{lane.label}</span>
+                  <span className="rounded-full px-1.5 text-[11px] font-semibold" style={{ background: pal.chipBg, color: pal.chipText }}>{items.length}</span>
+                  <button onClick={() => setPalette(palette && (palette as any).kind === "col" && (palette as any).status === lane.id ? null : { kind: "col", status: lane.id })}
+                    title="Column colour" className="ml-auto rounded-md p-1 text-gray-400 hover:bg-black/5 hover:text-gray-600">
+                    <Palette className="w-3.5 h-3.5" />
+                  </button>
+                  {palette && (palette as any).kind === "col" && (palette as any).status === lane.id && (
+                    <div className="absolute right-2 top-10 z-50 w-40 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 px-1 mb-1.5">Column colour</div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {PASTEL_KEYS.map(k => (
+                          <button key={k} onClick={() => { setColumnColors(c => ({ ...c, [lane.id]: k })); setPalette(null); }}
+                            className={`h-7 w-7 rounded-full border-2 ${pk === k ? "border-gray-900" : "border-white"}`}
+                            style={{ background: COLUMN_PASTELS[k].bar }} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="flex-1 space-y-2 overflow-y-auto p-2 min-h-[120px]">
+                <div className="h-px mx-3" style={{ background: pal.bar, opacity: 0.35 }} />
+
+                {/* cards */}
+                <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5 min-h-[140px]">
                   {items.map(t => {
                     const badge = tatBadge(t);
+                    const pm = PRIORITY_META[t.priority];
                     return (
                       <div key={t.id} draggable onDragStart={() => setDraggingId(t.id)} onClick={() => openDrawer(t.id)}
-                        className="cursor-pointer rounded-lg border border-gray-200 bg-white p-2.5 shadow-sm hover:border-indigo-300 hover:shadow transition active:cursor-grabbing">
-                        <div className="text-sm font-semibold text-gray-900 leading-snug line-clamp-2">{t.title}</div>
+                        className="group relative cursor-pointer overflow-hidden rounded-xl bg-white p-3 pl-4 shadow-[0_1px_2px_rgba(15,23,42,0.06),0_4px_12px_rgba(15,23,42,0.04)] ring-1 ring-black/[0.04] transition hover:-translate-y-0.5 hover:shadow-[0_2px_4px_rgba(15,23,42,0.08),0_8px_20px_rgba(15,23,42,0.08)] active:cursor-grabbing">
+                        {/* priority accent bar */}
+                        <span className="absolute left-0 top-0 h-full w-1.5" style={{ background: pm.color }} />
+                        <div className="text-[13.5px] font-semibold text-gray-900 leading-snug line-clamp-2">{t.title}</div>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: PRIORITY_META[t.priority].bg, color: PRIORITY_META[t.priority].color }}>
-                            {PRIORITY_META[t.priority].label}
-                          </span>
-                          {badge && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: badge.bg, color: badge.color }}>{badge.label}</span>}
-                          {t.reopen_count > 0 && <span className="flex items-center gap-0.5 text-[10px] font-semibold text-rose-600"><RotateCcw className="w-2.5 h-2.5" />{t.reopen_count}</span>}
+                          <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: pm.bg, color: pm.color }}>{pm.label}</span>
+                          {badge && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: badge.bg, color: badge.color }}>{badge.label}</span>}
+                          {t.reopen_count > 0 && <span className="flex items-center gap-0.5 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600"><RotateCcw className="w-2.5 h-2.5" />{t.reopen_count}</span>}
                         </div>
-                        <div className="mt-2 flex items-center gap-1.5">
-                          {t.assignee_id && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[9px] font-bold text-white" title={nameOf(t.assignee_id)}>{nameOf(t.assignee_id).slice(0, 1)}</span>}
+                        <div className="mt-2.5 flex items-center gap-1.5 border-t border-gray-100 pt-2">
+                          {t.assignee_id
+                            ? <span className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold text-white" style={{ background: pal.bar }} title={nameOf(t.assignee_id)}>{nameOf(t.assignee_id).slice(0, 1).toUpperCase()}</span>
+                            : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gray-100 text-[9px] font-bold text-gray-400">?</span>}
                           <span className="text-[11px] text-gray-500 truncate">{nameOf(t.assignee_id)}</span>
                         </div>
                       </div>
                     );
                   })}
                   {lane.id === "todo" && (
-                    <button onClick={() => setShowCreate("todo")} className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-gray-300 py-2 text-[11px] font-semibold text-gray-500 hover:border-indigo-300 hover:text-indigo-600">
-                      <Plus className="w-3 h-3" />Add task
+                    <button onClick={() => setShowCreate("todo")} className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-gray-300 bg-white/50 py-2.5 text-[11px] font-semibold text-gray-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-white">
+                      <Plus className="w-3.5 h-3.5" />Add task
                     </button>
                   )}
                   {items.length === 0 && lane.id !== "todo" && (
-                    <div className="rounded-md border border-dashed border-gray-200 py-6 text-center text-[10px] text-gray-400">Nothing here</div>
+                    <div className="rounded-xl border border-dashed border-black/10 py-7 text-center text-[10px] text-gray-400">Nothing here</div>
                   )}
                 </div>
               </div>
