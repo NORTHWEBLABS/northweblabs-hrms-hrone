@@ -3,8 +3,7 @@ import Link from 'next/link';
 import React from 'react';
 
 /* ============================================================
-   NorthWeb Labs — Marketing Landing Page
-   Single-file Next.js App Router page (app/page.tsx)
+   NorthWeb Labs — Marketing Landing Page  (app/page.tsx)
    ============================================================ */
 
 const ArrowRight = ({ size = 16 }: { size?: number }) => (
@@ -14,28 +13,97 @@ const ArrowRight = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
-const CheckIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+const CheckIcon = ({ color = '#fff' }: { color?: string }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M20 6 9 17l-5-5" />
   </svg>
 );
 
 const Logo = ({ light = false }: { light?: boolean }) => (
   <Link href="/" className="logo" aria-label="NorthWeb Labs home">
-    <span className="logo-mark" aria-hidden="true">N</span>
+    <img src="/logo-nwl.png" alt="" className="logo-mark-img" aria-hidden="true" />
     <span className={`logo-text ${light ? 'light' : ''}`}>
       NorthWeb <span className="logo-accent">Labs</span>
     </span>
   </Link>
 );
 
-/* ---------- App screenshot (responsive: separate mobile image) ---------- */
-const AppShot = ({ framed = false, desktop, mobile, alt }: { framed?: boolean; desktop: string; mobile: string; alt: string }) => (
-  <div className={`shot-wrap ${framed ? 'framed' : ''}`}>
-    <picture>
-      <source media="(max-width: 640px)" srcSet={mobile} />
-      <img src={desktop} alt={alt} className="shot-img" />
-    </picture>
+/* ---------- Hero product mock (pure CSS, responsive) ---------- */
+const CHART = [
+  { m: 'Nov', h: 46 }, { m: 'Dec', h: 60 }, { m: 'Jan', h: 54 }, { m: 'Feb', h: 76 },
+  { m: 'Mar', h: 66 }, { m: 'Apr', h: 88 }, { m: 'May', h: 106 },
+];
+
+const HeroMock = () => (
+  <div className="hero-stage">
+    {/* Main: People overview */}
+    <div className="pm-card">
+      <div className="pm-head">
+        <span className="pm-title">People overview</span>
+        <span className="pm-period">MAY 2026</span>
+      </div>
+      <div className="pm-stats">
+        <div className="pm-stat">
+          <div className="pm-stat-label">Headcount</div>
+          <div className="pm-stat-num">247</div>
+          <div className="pm-stat-sub"><b>+12</b> this mo</div>
+        </div>
+        <div className="pm-stat">
+          <div className="pm-stat-label">Active</div>
+          <div className="pm-stat-num">231</div>
+          <div className="pm-stat-sub">93.5%</div>
+        </div>
+        <div className="pm-stat">
+          <div className="pm-stat-label">Onboarding</div>
+          <div className="pm-stat-num">7</div>
+          <div className="pm-stat-sub"><b>+4</b> Mon</div>
+        </div>
+      </div>
+      <div className="pm-chart" aria-hidden="true">
+        {CHART.map((b, i) => (
+          <div className="pm-col" key={b.m}>
+            <span className={i === CHART.length - 1 ? 'pm-bar tall' : 'pm-bar'} style={{ height: b.h }} />
+            <span className="pm-col-label">{b.m}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    {/* Floating: people online */}
+    <div className="fc fc-online">
+      <div className="avatars" aria-hidden="true">
+        <span className="av av1">AM</span><span className="av av2">SK</span><span className="av av3">PN</span><span className="av av4">MT</span>
+      </div>
+      <span className="fc-online-text"><b>+243</b> people online</span>
+    </div>
+
+    {/* Floating: payroll approved */}
+    <div className="fc fc-payroll">
+      <span className="fc-check"><CheckIcon color="#16a34a" /></span>
+      <div>
+        <div className="fc-payroll-title">Payroll run · approved</div>
+        <div className="fc-payroll-sub">₹4.21 Cr · 247 payslips sent</div>
+      </div>
+    </div>
+
+    {/* Floating dark pills */}
+    <div className="pill-dark pill-uptime"><i className="pd-dot green" /> 99.99% uptime</div>
+    <div className="pill-dark pill-countries"><i className="pd-dot blue" /> 175 countries</div>
+
+    {/* Performance review card */}
+    <div className="perf-card">
+      <div className="perf-kicker">Performance · H1 2026</div>
+      <div className="perf-head">
+        <span className="perf-av">AM</span>
+        <div className="perf-id"><b>Aarav Mehta</b><span>Review completed</span></div>
+        <span className="perf-badge">4.6 Outstanding</span>
+      </div>
+      <div className="perf-rows">
+        <div className="perf-row"><span>Outstanding</span><div className="perf-bar"><i style={{ width: '88%' }} /></div></div>
+        <div className="perf-row"><span>Exceeds</span><div className="perf-bar"><i style={{ width: '60%' }} /></div></div>
+        <div className="perf-row"><span>Meets</span><div className="perf-bar"><i style={{ width: '40%' }} /></div></div>
+      </div>
+    </div>
   </div>
 );
 
@@ -86,12 +154,11 @@ export default function Page() {
               <Link href="/demo" className="btn btn-outline">Book a demo</Link>
             </div>
             <div className="hero-note">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
-              No card required · Set up in a day
+              <CheckIcon color="#16a34a" /> No card required · Set up in a day
             </div>
           </div>
           <div className="hero-visual">
-            <AppShot desktop="/hero-shot.png" mobile="/hero-shot-mobile.png" alt="NorthWeb Labs employee dashboard" />
+            <HeroMock />
           </div>
         </div>
 
@@ -122,7 +189,6 @@ export default function Page() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
               </span>
               <span className="dark-card-glow" aria-hidden="true" />
-              <span className="dark-card-n" aria-hidden="true">N</span>
               <div className="dark-card-body">
                 <h3>A people directory your whole company loves</h3>
                 <p>
@@ -201,7 +267,7 @@ export default function Page() {
             <Link href="/demo" className="btn btn-dark btn-lg">See it in action <ArrowRight /></Link>
           </div>
           <div className="speed-visual">
-            <AppShot framed desktop="/feature-shot.png" mobile="/feature-shot-mobile.png" alt="NorthWeb Labs in action" />
+            <HeroMock />
           </div>
         </div>
       </section>
@@ -227,8 +293,6 @@ export default function Page() {
       <section className="cta-banner-wrap">
         <div className="container">
           <div className="cta-banner">
-            <span className="banner-n n1" aria-hidden="true">N</span>
-            <span className="banner-n n2" aria-hidden="true">N</span>
             <h2>Give your people team their time back.</h2>
             <p>
               Start free in minutes. No credit card, no setup headache &mdash;
@@ -244,26 +308,22 @@ export default function Page() {
 
       <Footer />
 
-      {/* ============ STYLES (plain global CSS — no styled-jsx registry needed) ============ */}
+      {/* ============ STYLES ============ */}
       <style dangerouslySetInnerHTML={{ __html: `
 
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html { scroll-behavior: smooth; }
         body {
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-          color: #0b1220;
-          background: #fff;
-          -webkit-font-smoothing: antialiased;
+          color: #0b1220; background: #fff; -webkit-font-smoothing: antialiased;
         }
         a { text-decoration: none; color: inherit; }
         ul { list-style: none; }
-      
 
         .page { overflow-x: hidden; }
         html, body { overflow-x: hidden; }
         .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
         .hero-grid > *, .speed-grid > * { min-width: 0; }
-        .dash { max-width: 100%; }
 
         .kicker {
           font-family: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -299,11 +359,7 @@ export default function Page() {
         }
         .header-inner { display: flex; align-items: center; gap: 36px; height: 76px; }
         .logo { display: inline-flex; align-items: center; gap: 10px; }
-        .logo-mark {
-          width: 36px; height: 36px; border-radius: 10px; background: #0b1220;
-          color: #fff; display: inline-flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 19px;
-        }
+        .logo-mark-img { width: 36px; height: 36px; border-radius: 10px; object-fit: contain; display: block; }
         .logo-text { font-weight: 800; font-size: 18px; color: #0b1220; }
         .logo-text.light { color: #fff; }
         .logo-accent { color: #2563eb; }
@@ -314,124 +370,102 @@ export default function Page() {
         .signin { font-weight: 600; color: #0b1220; }
 
         /* ---------- Hero ---------- */
-        .hero {
-          background: linear-gradient(180deg, #fff 0%, #f4f7fb 100%);
-          padding: 88px 0 72px;
-        }
-        .hero-grid {
-          display: grid; grid-template-columns: 1fr 1fr;
-          gap: 56px; align-items: center;
-        }
+        .hero { background: linear-gradient(180deg, #fff 0%, #f4f7fb 100%); padding: 88px 0 72px; }
+        .hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
         .pill {
           display: inline-flex; align-items: center; gap: 8px;
           background: #e3ecfd; color: #1d4ed8; border-radius: 999px;
           font-size: 13.5px; font-weight: 600; padding: 8px 16px; margin-bottom: 28px;
         }
         .pill-dot { width: 7px; height: 7px; border-radius: 50%; background: #2563eb; }
-        .hero h1 {
-          font-size: clamp(44px, 5.5vw, 68px); line-height: 1.04;
-          letter-spacing: -0.03em; font-weight: 800;
-        }
+        .hero h1 { font-size: clamp(44px, 5.5vw, 68px); line-height: 1.04; letter-spacing: -0.03em; font-weight: 800; }
         .accent { color: #2563eb; }
-        .hero-sub {
-          margin-top: 26px; font-size: 18px; line-height: 1.65;
-          color: #4a5468; max-width: 480px;
-        }
+        .hero-sub { margin-top: 26px; font-size: 18px; line-height: 1.65; color: #4a5468; max-width: 480px; }
         .hero-ctas { display: flex; gap: 14px; margin-top: 34px; }
-        .hero-note {
-          display: flex; align-items: center; gap: 8px;
-          margin-top: 20px; font-size: 14px; color: #5b6577;
-        }
+        .hero-note { display: flex; align-items: center; gap: 8px; margin-top: 20px; font-size: 14px; color: #5b6577; }
 
-        /* ---------- Dashboard mock ---------- */
-        .dash-wrap { position: relative; }
-        .dash-wrap.framed {
-          background: linear-gradient(135deg, #dde7fb 0%, #eef2fc 60%, #f6f8fe 100%);
-          border-radius: 28px; padding: 44px 40px 56px 56px;
+        /* ---------- Hero mock (CSS) ---------- */
+        .hero-stage {
+          position: relative; max-width: 520px; margin: 0 auto; min-height: 570px;
+          border-radius: 24px; overflow: hidden; background: #0b1220;
+          box-shadow: 0 30px 70px rgba(8, 16, 34, 0.45);
         }
-        .dash {
-          position: relative; background: #fff; border-radius: 16px;
-          border: 1px solid #e7ecf3;
-          box-shadow: 0 24px 60px rgba(15, 30, 60, 0.12);
+        .hero-stage::before {
+          content: ''; position: absolute; inset: 0; z-index: 0;
+          background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+          background-size: 22px 22px;
         }
-        .dash-titlebar {
-          display: flex; align-items: center; gap: 10px;
-          padding: 14px 18px; border-bottom: 1px solid #eef1f6;
+        .hero-stage::after {
+          content: ''; position: absolute; top: -120px; right: -80px; width: 340px; height: 340px;
+          border-radius: 50%; background: radial-gradient(circle, rgba(59, 110, 245, 0.45), transparent 60%); z-index: 0;
         }
-        .dash-logo {
-          width: 24px; height: 24px; border-radius: 7px; background: #0b1220;
-          color: #fff; font-size: 13px; font-weight: 800;
-          display: inline-flex; align-items: center; justify-content: center;
-        }
-        .dash-title { font-size: 14px; font-weight: 700; }
-        .dash-dots { margin-left: auto; display: flex; gap: 6px; }
-        .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-        .dot.red { background: #ef4444; } .dot.yellow { background: #f59e0b; } .dot.green { background: #22c55e; }
-        .dash-body { display: flex; }
-        .dash-rail {
-          width: 58px; border-right: 1px solid #eef1f6; padding: 18px 0;
-          display: flex; flex-direction: column; align-items: center; gap: 16px;
-        }
-        .rail-item { width: 22px; height: 22px; border-radius: 7px; background: #e8edf5; }
-        .rail-item.active { background: #2563eb; }
-        .dash-main { flex: 1; padding: 18px 20px 22px; }
-        .dash-greeting { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
-        .dash-pay-card {
-          display: flex; align-items: flex-end; justify-content: space-between;
-          border: 1px solid #e7ecf3; border-radius: 12px; padding: 14px 16px;
-          box-shadow: 0 6px 18px rgba(15, 30, 60, 0.05); margin-bottom: 14px;
-        }
-        .pay-label { font-size: 12.5px; color: #67718a; margin-bottom: 5px; }
-        .pay-amount { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 26px; font-weight: 700; }
-        .mini-bars { display: flex; align-items: flex-end; gap: 4px; }
-        .bar { width: 6px; border-radius: 3px; background: #bcd2fb; display: inline-block; }
-        .bar.tall { background: #2563eb; }
-        .dash-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .dash-small-card {
-          border: 1px solid #e7ecf3; border-radius: 12px; padding: 12px 14px;
-          box-shadow: 0 6px 18px rgba(15, 30, 60, 0.04);
-        }
-        .small-num { font-size: 18px; font-weight: 800; }
-        .small-num span { font-size: 12px; color: #67718a; font-weight: 500; }
-        .pips { display: flex; gap: 5px; margin-top: 10px; }
-        .pip { width: 26px; height: 5px; border-radius: 3px; background: #e3e9f2; }
-        .pip.on { background: #2563eb; }
-        .small-label { font-size: 12.5px; color: #67718a; margin-bottom: 6px; }
-        .checked-in { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 700; }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
-        .time-range { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; color: #67718a; margin-top: 5px; }
+        .hero-stage > * { position: absolute; z-index: 1; }
 
-        .chip {
-          position: absolute; background: #fff; border-radius: 14px;
-          box-shadow: 0 14px 34px rgba(15, 30, 60, 0.16);
-          font-size: 13.5px; display: flex; align-items: center; gap: 9px;
-          padding: 11px 16px;
+        .pm-card {
+          top: 96px; left: 36px; right: 20px; z-index: 1;
+          background: #fff; border-radius: 18px; padding: 22px;
+          box-shadow: 0 18px 44px rgba(8, 16, 34, 0.3);
         }
-        .chip-payroll { top: 28px; right: -22px; font-weight: 600; }
-        .chip-dot { width: 9px; height: 9px; border-radius: 50%; background: #2563eb; }
-        .chip-leave { bottom: 86px; left: -34px; padding: 12px 18px 12px 12px; }
-        .chip-check {
-          width: 34px; height: 34px; border-radius: 10px; background: #22c55e;
-          display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-        }
-        .chip-leave strong { display: block; font-size: 14px; }
-        .chip-leave em { display: block; font-style: normal; font-size: 12.5px; color: #67718a; }
+        .pm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+        .pm-title { font-size: 18px; font-weight: 800; color: #0b1220; }
+        .pm-period { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; letter-spacing: 0.14em; color: #9aa3b5; }
+        .pm-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .pm-stat { border: 1px solid #eef1f6; border-radius: 12px; padding: 12px 14px; }
+        .pm-stat-label { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #9aa3b5; }
+        .pm-stat-num { font-size: 28px; font-weight: 800; color: #0b1220; line-height: 1.1; margin-top: 4px; }
+        .pm-stat-sub { font-size: 12px; color: #67718a; margin-top: 4px; }
+        .pm-stat-sub b { color: #16a34a; font-weight: 700; }
+        .pm-chart { display: flex; align-items: flex-end; gap: 10px; height: 140px; margin-top: 18px; }
+        .pm-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; height: 100%; }
+        .pm-bar { width: 100%; border-radius: 8px 8px 4px 4px; background: #eef1fb; }
+        .pm-bar.tall { background: linear-gradient(180deg, #3b6ef5, #2563eb); box-shadow: 0 8px 18px rgba(37, 99, 235, 0.3); }
+        .pm-col-label { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; letter-spacing: 0.08em; color: #9aa3b5; }
 
-        /* ---------- App screenshot (responsive image) ---------- */
-        .shot-wrap { position: relative; }
-        .shot-wrap.framed {
-          background: linear-gradient(135deg, #dde7fb 0%, #eef2fc 60%, #f6f8fe 100%);
-          border-radius: 28px; padding: 28px;
+        .fc {
+          background: #fff; border-radius: 16px; display: flex; align-items: center; gap: 12px;
+          padding: 12px 18px; box-shadow: 0 16px 40px rgba(8, 16, 34, 0.22);
         }
-        .shot-img {
-          display: block; width: 100%; height: auto; border-radius: 16px;
-          border: 1px solid #e7ecf3; box-shadow: 0 24px 60px rgba(15, 30, 60, 0.12);
+        .fc-online { top: 30px; left: 14px; z-index: 2; }
+        .avatars { display: flex; }
+        .av { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; color: #fff; border: 2px solid #fff; margin-left: -8px; }
+        .av:first-child { margin-left: 0; }
+        .av1 { background: #2563eb; } .av2 { background: #0b1220; } .av3 { background: #7c5cff; } .av4 { background: #1f9d57; }
+        .fc-online-text { font-size: 15px; color: #0b1220; }
+        .fc-online-text b { font-weight: 800; }
+
+        .fc-payroll { top: 0; right: 6px; z-index: 2; }
+        .fc-check { width: 34px; height: 34px; border-radius: 10px; background: #dcfce7; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .fc-payroll-title { font-size: 15px; font-weight: 800; color: #0b1220; }
+        .fc-payroll-sub { font-size: 12.5px; color: #67718a; margin-top: 2px; }
+
+        .pill-dark {
+          z-index: 2; display: flex; align-items: center; gap: 8px;
+          background: rgba(13, 20, 34, 0.72); border: 1px solid rgba(255, 255, 255, 0.14);
+          color: #e5e9f2; font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+          font-size: 13px; letter-spacing: 0.03em; padding: 9px 14px; border-radius: 10px;
         }
-        @media (max-width: 640px) {
-          .shot-wrap.framed { padding: 12px; border-radius: 18px; }
-          .shot-img { border-radius: 12px; box-shadow: 0 12px 30px rgba(15, 30, 60, 0.12); }
-          .hero-visual { margin-top: 8px; }
+        .pd-dot { width: 7px; height: 7px; border-radius: 50%; }
+        .pd-dot.green { background: #22c55e; } .pd-dot.blue { background: #3b6ef5; }
+        .pill-uptime { top: 334px; right: 2px; }
+        .pill-countries { bottom: 36px; right: 16px; }
+
+        .perf-card {
+          bottom: 6px; left: 4px; width: 300px; z-index: 3;
+          background: #fff; border-radius: 18px; padding: 20px;
+          box-shadow: 0 20px 50px rgba(8, 16, 34, 0.28);
         }
+        .perf-kicker { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #9aa3b5; }
+        .perf-head { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+        .perf-av { width: 42px; height: 42px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; flex-shrink: 0; }
+        .perf-id b { display: block; font-size: 16px; font-weight: 800; color: #0b1220; }
+        .perf-id span { font-size: 13px; color: #67718a; }
+        .perf-badge { margin-left: auto; background: #dcfce7; color: #16a34a; font-weight: 700; font-size: 13px; padding: 6px 12px; border-radius: 999px; white-space: nowrap; }
+        .perf-rows { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+        .perf-row { display: flex; align-items: center; gap: 12px; }
+        .perf-row > span { width: 84px; font-size: 13px; color: #5b6577; }
+        .perf-bar { flex: 1; height: 8px; border-radius: 6px; background: #eef1f6; overflow: hidden; }
+        .perf-bar i { display: block; height: 100%; border-radius: 6px; background: #cdd6e6; }
+        .perf-row:first-child .perf-bar i { background: #86efac; }
 
         /* ---------- Module strip ---------- */
         .logo-strip { margin-top: 96px; text-align: center; }
@@ -440,79 +474,38 @@ export default function Page() {
           font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase;
           color: #8a93a6; margin-bottom: 28px;
         }
-        .strip-logos {
-          display: flex; justify-content: center; flex-wrap: wrap;
-          gap: 18px 56px; font-size: 22px; font-weight: 800; color: #b6bfce;
-        }
+        .strip-logos { display: flex; justify-content: center; flex-wrap: wrap; gap: 18px 56px; font-size: 22px; font-weight: 800; color: #b6bfce; }
 
         /* ---------- Platform ---------- */
         .platform { padding: 110px 0 100px; }
-        .platform h2, .speed h2 {
-          font-size: clamp(34px, 4vw, 46px); font-weight: 800; letter-spacing: -0.025em;
-        }
+        .platform h2, .speed h2 { font-size: clamp(34px, 4vw, 46px); font-weight: 800; letter-spacing: -0.025em; }
         .section-sub { margin-top: 16px; font-size: 17.5px; line-height: 1.65; color: #4a5468; max-width: 560px; }
-
-        .feature-grid {
-          margin-top: 56px; display: grid;
-          grid-template-columns: 1fr 1fr; gap: 24px;
-        }
-        .feature-card {
-          display: block; border-radius: 20px; transition: transform 0.18s ease, box-shadow 0.18s ease;
-        }
+        .feature-grid { margin-top: 56px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        .feature-card { display: block; border-radius: 20px; transition: transform 0.18s ease, box-shadow 0.18s ease; }
         .feature-card:hover { transform: translateY(-3px); }
-        .light-card {
-          background: #fff; border: 1px solid #e7ecf3; padding: 32px;
-          box-shadow: 0 4px 14px rgba(15, 30, 60, 0.04);
-        }
+        .light-card { background: #fff; border: 1px solid #e7ecf3; padding: 32px; box-shadow: 0 4px 14px rgba(15, 30, 60, 0.04); }
         .light-card:hover { box-shadow: 0 16px 36px rgba(15, 30, 60, 0.1); }
         .light-card h3 { font-size: 21px; font-weight: 800; margin: 22px 0 10px; }
         .light-card p { font-size: 15.5px; line-height: 1.6; color: #4a5468; }
-        .icon-tile {
-          width: 52px; height: 52px; border-radius: 14px;
-          display: inline-flex; align-items: center; justify-content: center;
-        }
-        .blue-tile { background: #e3ecfd; }
-        .green-tile { background: #dcf5e6; }
-        .amber-tile { background: #fdeed3; }
-        .indigo-tile { background: #e4e4fb; }
-        .dark-tile { background: rgba(255, 255, 255, 0.12); }
-
+        .icon-tile { width: 52px; height: 52px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; }
+        .blue-tile { background: #e3ecfd; } .green-tile { background: #dcf5e6; } .amber-tile { background: #fdeed3; } .indigo-tile { background: #e4e4fb; } .dark-tile { background: rgba(255, 255, 255, 0.12); }
         .dark-card {
           grid-row: span 2; position: relative; overflow: hidden;
           background: radial-gradient(120% 120% at 85% 8%, #1a2c52 0%, #0b1220 55%);
-          padding: 32px; display: flex; flex-direction: column;
-          box-shadow: 0 18px 44px rgba(8, 16, 34, 0.35);
+          padding: 32px; display: flex; flex-direction: column; box-shadow: 0 18px 44px rgba(8, 16, 34, 0.35);
         }
-        .dark-card-glow {
-          position: absolute; top: -70px; right: -40px; width: 280px; height: 280px;
-          border-radius: 50%; background: radial-gradient(circle, rgba(59, 110, 245, 0.5), transparent 65%);
-          filter: blur(8px); pointer-events: none;
-        }
-        .dark-card-n {
-          position: absolute; bottom: -60px; left: -16px;
-          font-size: 280px; font-weight: 900; color: rgba(255, 255, 255, 0.05);
-          line-height: 1; pointer-events: none; user-select: none;
-        }
+        .dark-card-glow { position: absolute; top: -70px; right: -40px; width: 280px; height: 280px; border-radius: 50%; background: radial-gradient(circle, rgba(59, 110, 245, 0.5), transparent 65%); filter: blur(8px); pointer-events: none; }
         .dark-card-body { margin-top: auto; position: relative; }
         .dark-card h3 { color: #fff; font-size: 27px; font-weight: 800; line-height: 1.25; max-width: 420px; }
         .dark-card p { color: #b9c3d8; font-size: 15.5px; line-height: 1.65; margin-top: 14px; max-width: 440px; }
-        .text-link {
-          display: inline-flex; align-items: center; gap: 7px;
-          margin-top: 22px; color: #7ea4f7; font-weight: 700; font-size: 15.5px;
-        }
+        .text-link { display: inline-flex; align-items: center; gap: 7px; margin-top: 22px; color: #7ea4f7; font-weight: 700; font-size: 15.5px; }
 
         /* ---------- Speed ---------- */
         .speed { background: #f4f7fb; padding: 110px 0; }
-        .speed-grid {
-          display: grid; grid-template-columns: 1fr 1.05fr;
-          gap: 64px; align-items: center;
-        }
+        .speed-grid { display: grid; grid-template-columns: 1fr 1.05fr; gap: 64px; align-items: center; }
         .speed-list { margin: 38px 0 40px; display: flex; flex-direction: column; gap: 28px; }
         .speed-list li { display: flex; gap: 16px; }
-        .check-badge {
-          width: 30px; height: 30px; border-radius: 9px; background: #22c55e;
-          display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
-        }
+        .check-badge { width: 30px; height: 30px; border-radius: 9px; background: #22c55e; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
         .speed-list h4 { font-size: 17.5px; font-weight: 800; margin-bottom: 5px; }
         .speed-list p { font-size: 15.5px; line-height: 1.6; color: #4a5468; }
 
@@ -520,85 +513,32 @@ export default function Page() {
         .stats {
           background: #0b1220;
           background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-          background-size: 26px 26px;
-          padding: 84px 0;
+          background-size: 26px 26px; padding: 84px 0;
         }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; text-align: center; }
-        .stat-num {
-          font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-          font-size: clamp(34px, 4vw, 48px); font-weight: 700; color: #fff;
-        }
+        .stat-num { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: clamp(34px, 4vw, 48px); font-weight: 700; color: #fff; }
         .stat-label { margin-top: 10px; font-size: 15px; color: #94a0b8; }
 
-        /* ---------- Built for India ---------- */
-        .india { background: #fff; padding: 120px 0; }
-        .india-inner { text-align: center; }
-        .india h2 { font-size: clamp(32px, 4vw, 46px); font-weight: 800; letter-spacing: -0.025em; }
-        .india-sub { margin: 18px auto 0; font-size: 17.5px; line-height: 1.7; color: #8a93a6; }
-        .india-grid {
-          margin-top: 56px; display: grid;
-          grid-template-columns: repeat(3, 1fr); gap: 26px; text-align: left;
-        }
-        .india-card { border-radius: 20px; padding: 32px 30px 34px; }
-        .india-card.blue { background: #eef5fd; }
-        .india-card.purple { background: #ecedfb; }
-        .india-card.gray { background: #f5f6f8; }
-        .india-pill {
-          display: inline-block; font-size: 13px; font-weight: 700;
-          border-radius: 999px; padding: 5px 14px;
-        }
-        .india-pill.blue { background: #dbeafe; color: #2563eb; }
-        .india-pill.purple { background: #e3e3fb; color: #6d5ce8; }
-        .india-pill.gray { background: #e3e5e9; color: #3b4456; }
-        .india-card h3 { margin-top: 22px; font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
-        .india-card p { margin-top: 13px; font-size: 15.5px; line-height: 1.65; color: #5b6577; }
-        .india-divider { margin: 26px 0 22px; height: 1px; background: rgba(11, 18, 32, 0.08); }
-        .india-stat { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 38px; font-weight: 700; }
-        .india-stat.blue { color: #2563eb; }
-        .india-stat.purple { color: #6d5ce8; }
-        .india-stat.dark { color: #0b1220; }
-        .india-stat-label { margin-top: 6px; font-size: 14px; color: #8a93a6; }
-
         /* ---------- CTA banner ---------- */
-        .cta-banner-wrap { padding: 40px 0 110px; background: #fff; }
+        .cta-banner-wrap { padding: 110px 0; background: #fff; }
         .cta-banner {
           position: relative; overflow: hidden; text-align: center;
           background: linear-gradient(120deg, #2057e0 0%, #3b6ef5 60%, #5b85f7 100%);
-          border-radius: 28px; padding: 86px 32px;
-          box-shadow: 0 28px 60px rgba(37, 99, 235, 0.35);
+          border-radius: 28px; padding: 86px 32px; box-shadow: 0 28px 60px rgba(37, 99, 235, 0.35);
         }
-        .banner-n {
-          position: absolute; font-weight: 900; color: rgba(255, 255, 255, 0.12);
-          line-height: 0.8; pointer-events: none; user-select: none;
-        }
-        .n1 { font-size: 320px; top: -60px; left: -30px; }
-        .n2 { font-size: 260px; bottom: -80px; right: -20px; }
-        .cta-banner h2 {
-          color: #fff; font-size: clamp(32px, 4vw, 46px);
-          font-weight: 800; letter-spacing: -0.02em; position: relative;
-        }
-        .cta-banner p {
-          color: rgba(255, 255, 255, 0.88); font-size: 17.5px; line-height: 1.6;
-          margin: 18px auto 36px; max-width: 520px; position: relative;
-        }
+        .cta-banner h2 { color: #fff; font-size: clamp(32px, 4vw, 46px); font-weight: 800; letter-spacing: -0.02em; position: relative; }
+        .cta-banner p { color: rgba(255, 255, 255, 0.88); font-size: 17.5px; line-height: 1.6; margin: 18px auto 36px; max-width: 520px; position: relative; }
         .cta-banner-actions { display: flex; justify-content: center; gap: 14px; position: relative; }
 
-        /* ---------- Footer ---------- */
+        /* ---------- Footer (component) ---------- */
         .footer { background: #0b1220; color: #aab3c5; padding: 78px 0 36px; }
-        .footer-grid {
-          display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 40px;
-        }
+        .footer-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 40px; }
         .footer-brand p { margin-top: 20px; font-size: 15px; line-height: 1.7; }
         .footer-col { display: flex; flex-direction: column; gap: 13px; }
-        .footer-col h5 {
-          color: #fff; font-size: 14.5px; font-weight: 700; margin-bottom: 6px;
-        }
+        .footer-col h5 { color: #fff; font-size: 14.5px; font-weight: 700; margin-bottom: 6px; }
         .footer-col a { font-size: 14.5px; color: #aab3c5; transition: color 0.15s; }
         .footer-col a:hover { color: #fff; }
-        .footer-bottom {
-          margin-top: 64px; padding-top: 28px; border-top: 1px solid rgba(255, 255, 255, 0.1);
-          display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;
-        }
+        .footer-bottom { margin-top: 64px; padding-top: 28px; border-top: 1px solid rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
         .footer-copy { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; color: #7e8aa0; }
         .footer-legal { display: flex; gap: 24px; }
         .footer-legal a { font-size: 13.5px; color: #aab3c5; }
@@ -608,67 +548,49 @@ export default function Page() {
         @media (max-width: 980px) {
           .hero { padding: 64px 0 56px; }
           .hero-grid, .speed-grid { grid-template-columns: 1fr; gap: 40px; }
-          .hero-visual { margin-top: 28px; }
-          .chip-payroll { right: 12px; top: 12px; }
-          .chip-leave { left: 12px; bottom: 12px; }
-          .dash-wrap.framed { padding: 28px 22px 38px; }
+          .hero-visual { margin-top: 20px; }
           .feature-grid { grid-template-columns: 1fr; }
           .dark-card { grid-row: auto; min-height: 380px; }
           .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 44px 24px; }
-          .india-grid { grid-template-columns: 1fr; }
           .footer-grid { grid-template-columns: 1fr 1fr; }
           .main-nav { display: none; }
           .platform { padding: 80px 0 72px; }
           .speed { padding: 80px 0; }
-          .india { padding: 84px 0; }
+          .cta-banner-wrap { padding: 80px 0; }
           .logo-strip { margin-top: 64px; }
         }
+
+        /* Hero mock collapses to a clean vertical stack on phones */
+        @media (max-width: 640px) {
+          .hero-stage { min-height: 0; padding: 18px; display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+          .hero-stage > * { position: static !important; }
+          .pm-card { order: 2; }
+          .fc-payroll { order: 1; align-self: flex-start; }
+          .perf-card { order: 3; width: auto; }
+          .fc-online, .pill-dark { display: none; }
+          .pm-chart { height: 110px; }
+        }
+
         @media (max-width: 560px) {
           .container { padding: 0 18px; }
           .header-inner { gap: 16px; height: 64px; }
           .header-actions { gap: 12px; }
           .header-actions .btn { padding: 10px 16px; font-size: 14px; }
           .signin { display: none; }
-
-          .hero { padding: 44px 0 48px; }
+          .hero { padding: 40px 0 44px; }
           .hero h1 { font-size: clamp(33px, 9.5vw, 42px); }
           .hero-sub { font-size: 16.5px; }
           .hero-ctas, .cta-banner-actions { flex-direction: column; align-items: stretch; }
-
-          .dash-wrap.framed { padding: 16px 12px 24px; }
-          .dash-rail { width: 44px; }
-          .dash-main { padding: 14px 13px 16px; }
-          .dash-pay-card { padding: 12px 13px; }
-          .pay-amount { font-size: 21px; }
-          .bar { width: 5px; }
-          .dash-row { gap: 10px; }
-          .pip { width: 18px; }
-          .chip { font-size: 12px; padding: 8px 12px; box-shadow: 0 10px 24px rgba(15, 30, 60, 0.16); }
-          .chip-leave { padding: 9px 13px 9px 9px; }
-          .chip-leave strong { font-size: 12.5px; }
-          .chip-leave em { font-size: 11.5px; }
-          .chip-check { width: 28px; height: 28px; }
-
-          .logo-strip { margin-top: 52px; }
+          .logo-strip { margin-top: 48px; }
           .strip-logos { gap: 14px 28px; font-size: 17px; }
-          .platform { padding: 64px 0 56px; }
-          .speed { padding: 64px 0; }
-          .stats { padding: 60px 0; }
-          .india { padding: 64px 0; }
-          .india-stat { font-size: 32px; }
-          .light-card, .dark-card, .india-card { padding: 26px 22px 28px; }
-          .cta-banner-wrap { padding: 24px 0 72px; }
-          .cta-banner { padding: 56px 22px; border-radius: 22px; }
-          .n1 { font-size: 190px; top: -40px; left: -24px; }
-          .n2 { font-size: 150px; bottom: -50px; right: -16px; }
+          .platform { padding: 60px 0 52px; }
+          .speed { padding: 60px 0; }
+          .stats { padding: 56px 0; }
+          .light-card, .dark-card { padding: 26px 22px 28px; }
+          .cta-banner-wrap { padding: 56px 0; }
+          .cta-banner { padding: 52px 22px; border-radius: 22px; }
           .footer { padding: 56px 0 30px; }
-          .footer-bottom { margin-top: 44px; }
         }
-        @media (max-width: 380px) {
-          .dash-row { grid-template-columns: 1fr; }
-          .mini-bars { display: none; }
-        }
-      
       ` }} />
     </div>
   );
