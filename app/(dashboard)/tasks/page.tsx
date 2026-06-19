@@ -12,6 +12,7 @@ import {
   Plus, X, Loader2, CheckCircle2, AlertCircle, Flag, Calendar, Clock,
   Search, LayoutGrid, Table as TableIcon, List as ListIcon, RotateCcw,
   Play, Send, Check, Trash2, ChevronRight, User as UserIcon, Users, Palette,
+  PanelLeft, BarChart3, Eye, EyeOff, AlertTriangle,
 } from "lucide-react";
 
 /* ─────────── types ─────────── */
@@ -134,6 +135,11 @@ export default function TasksPage() {
   const [boardBg, setBoardBg] = useState<string>("#f7f8fa");
   const [cardBorder, setCardBorder] = useState<string>("match"); // "match" | PastelKey | "subtle"
   const [palette, setPalette] = useState<null | { kind: "bg" } | { kind: "col"; status: Status }>(null);
+
+  // left analytics/controls panel + view filters
+  const [showPanel, setShowPanel] = useState(true);
+  const [hideVerified, setHideVerified] = useState(false);
+  const [priorityFilter, setPriorityFilter] = useState<Priority | "all">("all");
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState<null | Status>(null);
   const [rejectFor, setRejectFor] = useState<Task | null>(null);
@@ -230,6 +236,42 @@ export default function TasksPage() {
     }
     return list;
   }, [tasks, scope, myId, isAdminLike, myReports, search, nameOf]);
+
+  // board/table/list show this (scoped + view filters)
+  const shown = useMemo(() => {
+    let list = scoped;
+    if (hideVerified) list = list.filter(t => t.status !== "verified");
+    if (priorityFilter !== "all") list = list.filter(t => t.priority === priorityFilter);
+    return list;
+  }, [scoped, hideVerified, priorityFilter]);
+
+  // analytics (from scoped, ignoring the view filters so totals stay honest)
+  const stats = useMemo(() => {
+    const active = scoped.filter(t => t.status === "todo" || t.status === "inprogress");
+    const overdue = active.filter(t => t.due_at && new Date(t.due_at).getTime() < Date.now()).length;
+    const judged = scoped.filter(t => (t.status === "submitted" || t.status === "verified") && t.due_at && t.submitted_at);
+    const onTime = judged.filter(t => new Date(t.submitted_at!).getTime() <= new Date(t.due_at!).getTime()).length;
+    return {
+      total: scoped.length,
+      open: active.length,
+      review: scoped.filter(t => t.status === "submitted").length,
+      verified: scoped.filter(t => t.status === "verified").length,
+      overdue,
+      onTimeRate: judged.length ? Math.round((onTime / judged.length) * 100) : null,
+    };
+  }, [scoped]);
+
+  const byPerson = useMemo(() => {
+    const m = new Map<string, { open: number; overdue: number }>();
+    scoped.forEach(t => {
+      if (!t.assignee_id || t.status === "verified") return;
+      const e = m.get(t.assignee_id) || { open: 0, overdue: 0 };
+      e.open++;
+      if ((t.status === "todo" || t.status === "inprogress") && t.due_at && new Date(t.due_at).getTime() < Date.now()) e.overdue++;
+      m.set(t.assignee_id, e);
+    });
+    return Array.from(m.entries()).map(([id, v]) => ({ id, name: nameOf(id), ...v })).sort((a, b) => b.open - a.open).slice(0, 7);
+  }, [scoped, nameOf]);
 
   /* ── mutations ── */
   const patchLocal = (id: string, patch: Partial<Task>) =>
@@ -365,6 +407,11 @@ export default function TasksPage() {
           <p className="text-sm text-gray-400">Assign, track TAT and verify work across your team</p>
         </div>
 
+        <button onClick={() => setShowPanel(s => !s)} title="Toggle insights panel"
+          className={`flex items-center justify-center w-9 h-9 rounded-lg border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
+          <PanelLeft className="w-4 h-4" />
+        </button>
+
         {/* scope toggle */}
         {canSeeTeam && (
           <div className="ml-2 flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
@@ -436,10 +483,78 @@ export default function TasksPage() {
       </div>
 
       {/* views */}
+      <div className="flex gap-4">
+        {showPanel && (
+          <aside className="hidden lg:flex w-60 shrink-0 flex-col gap-3">
+            {/* insights */}
+            <div className="rounded-2xl border border-gray-100 bg-white p-3.5 shadow-sm">
+              <div className="flex items-center gap-1.5 mb-3">
+                <BarChart3 className="w-3.5 h-3.5 text-indigo-500" />
+                <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Insights</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Stat label="Open" value={stats.open} />
+                <Stat label="In review" value={stats.review} tone="amber" />
+                <Stat label="Overdue" value={stats.overdue} tone="rose" />
+                <Stat label="Verified" value={stats.verified} tone="green" />
+              </div>
+              <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">On-time TAT</div>
+                <div className="mt-0.5 flex items-baseline gap-1">
+                  <span className="text-xl font-bold text-gray-900">{stats.onTimeRate === null ? "—" : stats.onTimeRate + "%"}</span>
+                  <span className="text-[10px] text-gray-400">submitted before due</span>
+                </div>
+              </div>
+            </div>
+
+            {/* filters */}
+            <div className="rounded-2xl border border-gray-100 bg-white p-3.5 shadow-sm">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-2.5">Filters</div>
+              <button onClick={() => setHideVerified(v => !v)}
+                className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs font-semibold transition ${hideVerified ? "bg-indigo-50 text-indigo-600" : "bg-gray-50 text-gray-600 hover:bg-gray-100"}`}>
+                <span>Hide verified</span>
+                {hideVerified ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+              <div className="mt-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Priority</div>
+                <div className="flex flex-wrap gap-1">
+                  {(["all", ...PRIORITIES] as const).map(p => (
+                    <button key={p} onClick={() => setPriorityFilter(p as any)}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold border transition ${priorityFilter === p ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-500 hover:border-gray-300"}`}>
+                      {p === "all" ? "All" : PRIORITY_META[p as Priority].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* by person — team scope */}
+            {scope === "team" && byPerson.length > 0 && (
+              <div className="rounded-2xl border border-gray-100 bg-white p-3.5 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  <Users className="w-3.5 h-3.5 text-indigo-500" />
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Workload</span>
+                </div>
+                <div className="space-y-1.5">
+                  {byPerson.map(p => (
+                    <div key={p.id} className="flex items-center gap-2 text-xs">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[9px] font-bold text-white shrink-0">{p.name.slice(0, 1).toUpperCase()}</span>
+                      <span className="flex-1 truncate text-gray-700">{p.name}</span>
+                      <span className="font-semibold text-gray-900">{p.open}</span>
+                      {p.overdue > 0 && <span className="flex items-center gap-0.5 text-[10px] font-semibold text-rose-600"><AlertTriangle className="w-2.5 h-2.5" />{p.overdue}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </aside>
+        )}
+
+        <div className="flex-1 min-w-0">
       {view === "board" && (
         <div className="flex gap-4 overflow-x-auto pb-3 rounded-2xl p-3 -mx-1 transition-colors" style={{ background: boardBg }}>
           {LANES.map(lane => {
-            const items = scoped.filter(t => t.status === lane.id);
+            const items = shown.filter(t => t.status === lane.id);
             const pk = columnColors[lane.id];
             const pal = COLUMN_PASTELS[pk];
             const cardBorderColor = cardBorder === "match" ? pal.bar
@@ -482,7 +597,7 @@ export default function TasksPage() {
                     const pm = PRIORITY_META[t.priority];
                     return (
                       <div key={t.id} draggable onDragStart={() => setDraggingId(t.id)} onClick={() => openDrawer(t.id)}
-                        className="group cursor-pointer rounded-2xl bg-white p-3 shadow-[0_1px_3px_rgba(15,23,42,0.06),0_6px_16px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:shadow-[0_2px_6px_rgba(15,23,42,0.10),0_12px_28px_rgba(15,23,42,0.12)] active:cursor-grabbing"
+                        className="group cursor-pointer rounded-xl bg-white p-3 shadow-[0_2px_4px_rgba(15,23,42,0.08),0_10px_24px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5 hover:shadow-[0_4px_8px_rgba(15,23,42,0.12),0_16px_32px_rgba(15,23,42,0.16)] active:cursor-grabbing"
                         style={{ border: `2px solid ${cardBorderColor}` }}>
                         <div className="text-[13.5px] font-semibold text-gray-900 leading-snug line-clamp-2">{t.title}</div>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -529,7 +644,7 @@ export default function TasksPage() {
                 </tr>
               </thead>
               <tbody>
-                {scoped.map(t => {
+                {shown.map(t => {
                   const badge = tatBadge(t);
                   return (
                     <tr key={t.id} onClick={() => openDrawer(t.id)} className="border-b border-gray-100 hover:bg-gray-50/70 cursor-pointer">
@@ -542,12 +657,12 @@ export default function TasksPage() {
                     </tr>
                   );
                 })}
-                {scoped.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-xs text-gray-400">No tasks</td></tr>}
+                {shown.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-xs text-gray-400">No tasks</td></tr>}
               </tbody>
             </table>
           ) : (
             <div className="divide-y divide-gray-100">
-              {scoped.map(t => {
+              {shown.map(t => {
                 const badge = tatBadge(t);
                 return (
                   <button key={t.id} onClick={() => openDrawer(t.id)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50/70">
@@ -559,11 +674,13 @@ export default function TasksPage() {
                   </button>
                 );
               })}
-              {scoped.length === 0 && <div className="py-12 text-center text-xs text-gray-400">No tasks</div>}
+              {shown.length === 0 && <div className="py-12 text-center text-xs text-gray-400">No tasks</div>}
             </div>
           )}
         </div>
       )}
+        </div>
+      </div>
 
       {/* detail drawer */}
       {drawerTask && (
@@ -860,6 +977,19 @@ function TaskDrawer(props: {
         </div>
       </aside>
     </>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: number; tone?: "amber" | "rose" | "green" }) {
+  const c = tone === "amber" ? { bg: "#fffdf2", text: "#a16207" }
+    : tone === "rose" ? { bg: "#fff4f5", text: "#be123c" }
+    : tone === "green" ? { bg: "#f3fdf6", text: "#15803d" }
+    : { bg: "#f8fafc", text: "#0f172a" };
+  return (
+    <div className="rounded-xl px-2.5 py-2" style={{ background: c.bg }}>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</div>
+      <div className="text-lg font-bold" style={{ color: c.text }}>{value}</div>
+    </div>
   );
 }
 
