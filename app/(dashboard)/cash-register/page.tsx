@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import {
   Plus, X, Loader2, CheckCircle2, AlertCircle, ArrowDown, ArrowUp,
-  Wallet, ChevronLeft, ChevronRight, RefreshCw,
+  Wallet, ChevronLeft, ChevronRight, ChevronDown, RefreshCw,
   Building2, Send,
   PiggyBank, Receipt, Tag, Trash2, Save,
   Download, ShoppingBag, Clock, AlertTriangle,
@@ -114,7 +114,7 @@ function RegisterCategoryModal({ existing, onSave, onClose }: { existing: ExpCat
 }
 
 // ── Handover Modal ────────────────────────────────────────────────────────────
-interface HandoverTarget { id: string; kind: string; label: string; detail: string | null; }
+interface HandoverTarget { id: string; kind: string; label: string; bank_name: string | null; account_number: string | null; ifsc: string | null; branch: string | null; detail: string | null; }
 
 function HandoverModal({ registerId, onSave, onClose }: { registerId: string; onSave: (h: Handover) => void; onClose: () => void }) {
   const sb = useSB();
@@ -125,15 +125,22 @@ function HandoverModal({ registerId, onSave, onClose }: { registerId: string; on
   const [targets, setTargets] = useState<HandoverTarget[]>([]);
   const [targetId, setTargetId] = useState("");
   const [adding, setAdding] = useState(false);
-  const [newLabel, setNewLabel] = useState("");
-  const [newDetail, setNewDetail] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // add-target fields
+  const [tName, setTName] = useState("");
+  const [tBank, setTBank] = useState("");
+  const [tAcct, setTAcct] = useState("");
+  const [tIfsc, setTIfsc] = useState("");
+  const [tBranch, setTBranch] = useState("");
+  const [ifscLoading, setIfscLoading] = useState(false);
+  const [ifscErr, setIfscErr] = useState("");
 
   useEffect(() => {
     (async () => {
       const orgId = await getOrgId(sb);
-      const { data } = await sb.from("cash_handover_targets").select("id, kind, label, detail").eq("org_id", orgId).order("label");
+      const { data } = await sb.from("cash_handover_targets").select("id, kind, label, bank_name, account_number, ifsc, branch, detail").eq("org_id", orgId).order("label");
       setTargets((data || []) as HandoverTarget[]);
     })();
   }, [sb]);
@@ -144,16 +151,35 @@ function HandoverModal({ registerId, onSave, onClose }: { registerId: string; on
 
   const pickType = (t: "bank_deposit" | "hq_handover") => { setType(t); setTargetId(""); setAdding(false); setError(""); };
 
+  const resetAdd = () => { setTName(""); setTBank(""); setTAcct(""); setTIfsc(""); setTBranch(""); setIfscErr(""); };
+
+  // IFSC → bank name + branch/address via Razorpay's public IFSC API
+  const lookupIfsc = async (code: string) => {
+    const c = code.trim().toUpperCase();
+    if (c.length !== 11) return;
+    setIfscLoading(true); setIfscErr("");
+    try {
+      const res = await fetch(`https://ifsc.razorpay.com/${c}`);
+      if (!res.ok) { setIfscErr("IFSC not found"); setIfscLoading(false); return; }
+      const j = await res.json();
+      if (j.BANK) setTBank(j.BANK);
+      const addr = [j.BRANCH, j.ADDRESS, j.CITY, j.STATE].filter(Boolean).join(", ");
+      if (addr) setTBranch(addr);
+    } catch { setIfscErr("Could not look up IFSC"); }
+    finally { setIfscLoading(false); }
+  };
+
   const addTarget = async () => {
-    if (!newLabel.trim()) { setError(kind === "bank" ? "Bank / account name required" : "Name required"); return; }
+    if (!tName.trim()) { setError("Name required"); return; }
     const orgId = await getOrgId(sb);
-    const { data, error: e } = await sb.from("cash_handover_targets")
-      .insert({ org_id: orgId, kind, label: newLabel.trim(), detail: newDetail.trim() || null })
-      .select("id, kind, label, detail").single();
+    const row = kind === "bank"
+      ? { org_id: orgId, kind, label: tName.trim(), bank_name: tBank.trim() || null, account_number: tAcct.trim() || null, ifsc: tIfsc.trim().toUpperCase() || null, branch: tBranch.trim() || null }
+      : { org_id: orgId, kind, label: tName.trim() };
+    const { data, error: e } = await sb.from("cash_handover_targets").insert(row).select("id, kind, label, bank_name, account_number, ifsc, branch, detail").single();
     if (e) { setError(e.message.includes("duplicate") ? "That entry already exists" : e.message); return; }
     setTargets(p => [...p, data as HandoverTarget]);
     setTargetId((data as HandoverTarget).id);
-    setAdding(false); setNewLabel(""); setNewDetail(""); setError("");
+    setAdding(false); resetAdd(); setError("");
   };
 
   const save = async () => {
@@ -164,7 +190,7 @@ function HandoverModal({ registerId, onSave, onClose }: { registerId: string; on
     const { data, error: e } = await sb.from("cash_handovers").insert({
       org_id: orgId, register_id: registerId, date: istToday(),
       type, amount: Number(amount),
-      reference_number: ref.trim() || selected.detail || null,
+      reference_number: ref.trim() || selected.account_number || null,
       handed_to: selected.label, notes: notes.trim() || null,
     }).select().single();
     if (e) { setError(e.message); setSaving(false); return; }
@@ -176,57 +202,85 @@ function HandoverModal({ registerId, onSave, onClose }: { registerId: string; on
     { id: "hq_handover" as const, label: "HQ handover", icon: <Send className="w-4 h-4" />, color: "#8B5CF6" },
   ];
 
+  const optionText = (t: HandoverTarget) =>
+    t.kind === "bank"
+      ? `${t.label}${t.bank_name ? " · " + t.bank_name : ""}${t.account_number ? " ••" + t.account_number.slice(-4) : ""}`
+      : t.label;
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-4 bg-gradient-to-r from-red-500 to-orange-500 text-white flex items-center justify-between">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 bg-gradient-to-r from-red-500 to-orange-500 text-white flex items-center justify-between sticky top-0">
           <h2 className="text-base font-bold flex items-center gap-2"><ArrowUp className="w-5 h-5" />Cash out / handover</h2>
           <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg"><X className="w-4 h-4" /></button>
         </div>
         <div className="px-6 py-5 space-y-4">
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2"><AlertCircle className="w-4 h-4 flex-shrink-0" />{error}</div>}
 
-          {/* Type */}
           <div className="grid grid-cols-2 gap-2">{TYPES.map(t => (
             <button key={t.id} onClick={() => pickType(t.id)} className={`p-3 rounded-xl border-2 flex items-center gap-2 transition ${type === t.id ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300"}`}>
               <span style={{ color: t.color }}>{t.icon}</span><span className="text-xs font-semibold text-gray-800">{t.label}</span>
             </button>
           ))}</div>
 
-          {/* Amount + reference */}
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs font-semibold text-gray-600 mb-1">Amount (₹) *</label><input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="5000" className={inputCls} autoFocus /></div>
             <div><label className="block text-xs font-semibold text-gray-600 mb-1">Reference #</label><input value={ref} onChange={e => setRef(e.target.value)} placeholder="DEP-001" className={inputCls} /></div>
           </div>
 
-          {/* Target: select-or-add */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-semibold text-gray-600">{kind === "bank" ? "Deposit to account *" : "Handed to *"}</label>
-              {!adding && <button onClick={() => { setAdding(true); setError(""); }} className="text-xs text-indigo-600 font-semibold hover:underline flex items-center gap-0.5"><Plus className="w-3 h-3" />Add {kind === "bank" ? "account" : "name"}</button>}
+              {!adding && <button onClick={() => { setAdding(true); resetAdd(); setError(""); }} className="text-xs text-indigo-600 font-semibold hover:underline flex items-center gap-0.5"><Plus className="w-3 h-3" />Add {kind === "bank" ? "account" : "name"}</button>}
             </div>
 
             {!adding ? (
-              <select value={targetId} onChange={e => setTargetId(e.target.value)} className={inputCls}>
-                <option value="">{visible.length ? (kind === "bank" ? "Select bank account…" : "Select recipient…") : (kind === "bank" ? "No accounts yet — add one" : "No names yet — add one")}</option>
-                {visible.map(t => <option key={t.id} value={t.id}>{t.label}{t.detail ? ` · ${t.detail}` : ""}</option>)}
-              </select>
+              <div className="relative">
+                <select value={targetId} onChange={e => setTargetId(e.target.value)} className={inputCls + " appearance-none pr-9"}>
+                  <option value="">{visible.length ? (kind === "bank" ? "Select bank account…" : "Select recipient…") : (kind === "bank" ? "No accounts yet — add one" : "No names yet — add one")}</option>
+                  {visible.map(t => <option key={t.id} value={t.id}>{optionText(t)}</option>)}
+                </select>
+                <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            ) : kind === "bank" ? (
+              <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl space-y-2">
+                <div><label className="block text-[11px] font-semibold text-gray-500 mb-1">Name *</label><input value={tName} onChange={e => setTName(e.target.value)} placeholder="Account holder / nickname" className={inputCls} autoFocus /></div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-500 mb-1">IFSC code</label>
+                  <div className="relative">
+                    <input value={tIfsc} onChange={e => setTIfsc(e.target.value.toUpperCase())} onBlur={e => lookupIfsc(e.target.value)} placeholder="HDFC0000123" maxLength={11} className={inputCls + " pr-9 uppercase"} />
+                    {ifscLoading && <Loader2 className="w-4 h-4 text-indigo-400 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />}
+                  </div>
+                  {ifscErr && <p className="text-[11px] text-red-500 mt-1">{ifscErr}</p>}
+                </div>
+                <div><label className="block text-[11px] font-semibold text-gray-500 mb-1">Bank name</label><input value={tBank} onChange={e => setTBank(e.target.value)} placeholder="Auto-filled from IFSC" className={inputCls} /></div>
+                <div><label className="block text-[11px] font-semibold text-gray-500 mb-1">Account number</label><input value={tAcct} onChange={e => setTAcct(e.target.value)} placeholder="Account no." className={inputCls} /></div>
+                {tBranch && <p className="text-[11px] text-gray-400 leading-snug">{tBranch}</p>}
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => { setAdding(false); resetAdd(); }} className="flex-1 py-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg font-medium">Cancel</button>
+                  <button onClick={addTarget} className="flex-1 py-2 text-xs text-white bg-indigo-600 rounded-lg font-semibold hover:bg-indigo-700 flex items-center justify-center gap-1"><Plus className="w-3 h-3" />Save account</button>
+                </div>
+              </div>
             ) : (
               <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl space-y-2">
-                <input value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder={kind === "bank" ? "Bank / account name (e.g. HDFC Current)" : "Recipient name (e.g. Head office)"} className={inputCls} autoFocus />
-                {kind === "bank" && <input value={newDetail} onChange={e => setNewDetail(e.target.value)} placeholder="Account no. / IFSC (optional)" className={inputCls} />}
+                <div><label className="block text-[11px] font-semibold text-gray-500 mb-1">Name *</label><input value={tName} onChange={e => setTName(e.target.value)} placeholder="Recipient / HQ name" className={inputCls} autoFocus /></div>
                 <div className="flex gap-2">
-                  <button onClick={() => { setAdding(false); setNewLabel(""); setNewDetail(""); setError(""); }} className="flex-1 py-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg font-medium">Cancel</button>
-                  <button onClick={addTarget} className="flex-1 py-2 text-xs text-white bg-indigo-600 rounded-lg font-semibold hover:bg-indigo-700 flex items-center justify-center gap-1"><Plus className="w-3 h-3" />Save {kind === "bank" ? "account" : "name"}</button>
+                  <button onClick={() => { setAdding(false); resetAdd(); }} className="flex-1 py-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg font-medium">Cancel</button>
+                  <button onClick={addTarget} className="flex-1 py-2 text-xs text-white bg-indigo-600 rounded-lg font-semibold hover:bg-indigo-700 flex items-center justify-center gap-1"><Plus className="w-3 h-3" />Save name</button>
                 </div>
               </div>
             )}
-            {selected?.detail && !adding && <p className="text-[11px] text-gray-400 mt-1">{selected.detail}</p>}
+
+            {selected && !adding && (selected.bank_name || selected.account_number || selected.branch) && (
+              <p className="text-[11px] text-gray-400 mt-1.5 leading-snug">
+                {[selected.bank_name, selected.account_number ? "A/C " + selected.account_number : null, selected.ifsc, selected.branch].filter(Boolean).join(" · ")}
+              </p>
+            )}
           </div>
 
           <div><label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label><input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" className={inputCls} /></div>
         </div>
-        <div className="px-6 py-4 border-t bg-gray-50 flex gap-3">
+        <div className="px-6 py-4 border-t bg-gray-50 flex gap-3 sticky bottom-0">
           <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 bg-white border border-gray-200 rounded-xl font-medium">Cancel</button>
           <button onClick={save} disabled={saving} className="flex-1 py-2.5 text-sm text-white bg-red-500 rounded-xl font-semibold disabled:opacity-50 flex items-center justify-center gap-2 hover:bg-red-600">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}Record
@@ -286,12 +340,16 @@ export default function CashRegisterPage() {
     const oid = await getOrgId(sb);
     if (!oid) { setLoading(false); return; }
 
-    // Get or create register
+    // Get or create register. Opening always carries forward from the most recent prior day's closing.
     let { data: reg } = await sb.from("cash_register").select("*").eq("org_id", oid).eq("date", date).maybeSingle();
+    const { data: prev } = await sb.from("cash_register").select("closing_cash").eq("org_id", oid).lt("date", date).order("date", { ascending: false }).limit(1).maybeSingle();
+    const prevClosing = prev?.closing_cash || 0;
     if (!reg) {
-      const { data: prev } = await sb.from("cash_register").select("closing_cash").eq("org_id", oid).lt("date", date).order("date", { ascending: false }).limit(1).maybeSingle();
-      const { data: newReg } = await sb.from("cash_register").insert({ org_id: oid, date, opening_cash: prev?.closing_cash || 0 }).select().single();
+      const { data: newReg } = await sb.from("cash_register").insert({ org_id: oid, date, opening_cash: prevClosing }).select().single();
       reg = newReg;
+    } else if ((reg.opening_cash || 0) !== prevClosing) {
+      await sb.from("cash_register").update({ opening_cash: prevClosing }).eq("id", reg.id);
+      reg = { ...reg, opening_cash: prevClosing };
     }
     if (reg) {
       setRegister(reg as Register);
@@ -357,6 +415,13 @@ export default function CashRegisterPage() {
   const cashExpenses = expenses.filter(e => e.payment_mode === "cash").reduce((s, e) => s + e.amount, 0);
   const opening = register?.opening_cash || 0;
   const cashInHand = opening + (Number(payCash) || 0) - cashExpenses - totalHandoverAmt;
+
+  // Persist closing cash so it carries forward as the next day's opening.
+  useEffect(() => {
+    if (loading || !register) return;
+    if (Math.round(register.closing_cash || 0) === Math.round(cashInHand)) return;
+    sb.from("cash_register").update({ closing_cash: cashInHand, updated_at: new Date().toISOString() }).eq("id", register.id).then(() => {});
+  }, [cashInHand, register, loading, sb]);
 
   const expByCat = useMemo(() => {
     const map: Record<string, { amount: number; color: string }> = {};
