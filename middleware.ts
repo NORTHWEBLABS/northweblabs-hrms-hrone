@@ -6,7 +6,7 @@ const PROTECTED = [
   "/dashboard", "/organizations", "/employees", "/attendance", "/payroll",
   "/loans", "/leaves", "/approvals", "/offboarding", "/letters", "/store", "/cashflow",
   "/cash-register", "/expenses", "/settings", "/documents", "/compliance",
-  "/reports", "/me", "/my-attendance", "/org-structure",
+  "/reports", "/me", "/my-attendance", "/org-structure", "/tasks",
 ];
 
 const FULL_APP = PROTECTED.filter((p) => p !== "/organizations");
@@ -25,9 +25,9 @@ const ACCESS: Record<string, string[]> = {
   owner: FULL_APP,
   admin: FULL_APP,
   hr: ["/dashboard", "/employees", "/attendance", "/payroll", "/loans", "/leaves",
-       "/approvals", "/documents", "/compliance", "/reports", "/me", "/my-attendance", "/org-structure"],
-  manager: ["/dashboard", "/approvals", "/attendance", "/leaves", "/me", "/my-attendance"],
-  employee: ["/me", "/my-attendance", "/attendance", "/leaves", "/approvals"],
+       "/approvals", "/documents", "/compliance", "/reports", "/me", "/my-attendance", "/org-structure", "/tasks"],
+  manager: ["/dashboard", "/approvals", "/attendance", "/leaves", "/me", "/my-attendance", "/tasks"],
+  employee: ["/me", "/my-attendance", "/attendance", "/leaves", "/approvals", "/tasks"],
 };
 
 const CONFIGURABLE_KEYS = new Set(MODULES.filter((m) => m.configurable).map((m) => m.key));

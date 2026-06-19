@@ -15,6 +15,8 @@ export const ALWAYS_ALL_ROLES = ["super_admin", "owner"];
 
 // configurable modules carry defaultRoles drawn from the current sidebar behaviour.
 export const MODULES: ModuleDef[] = [
+  // Work
+  { key: "/tasks", label: "Tasks", group: "Work", configurable: true, defaultRoles: ["admin", "hr", "manager", "employee"] },
   // People
   { key: "/employees", label: "Employees", group: "People", configurable: true, defaultRoles: ["admin", "hr"] },
   { key: "/org-structure", label: "Org structure", group: "People", configurable: true, defaultRoles: ["admin", "hr"] },
@@ -39,7 +41,7 @@ export const MODULES: ModuleDef[] = [
   { key: "/settings", label: "Settings", group: "System", configurable: true, defaultRoles: ["admin"] },
 ];
 
-export const MODULE_GROUPS = ["People", "HR", "Finance", "Commerce", "System"];
+export const MODULE_GROUPS = ["People", "Work", "HR", "Finance", "Commerce", "System"];
 
 // Effective check for one module.
 // rolePerm  = module_permissions row value for (role, key)        | undefined if none
