@@ -32,6 +32,29 @@ const fmtINR = (n: number) => (n < 0 ? "-" : "") + "₹" + Math.abs(Math.round(n
 const fmtDate = (d: string) => new Date(d + "T00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 // "Today" in IST — avoids the UTC rollover showing the prior date in early-morning IST.
 const istToday = () => new Date(Date.now() + 19800000).toISOString().split("T")[0];
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Derive the structured channel/payment values from a stored Shopify breakdown JSON.
+// Used as a fallback for days pulled before the route persisted these columns.
+function colsFromBreakdown(b: any) {
+  const po = b?.payments_offline || {};
+  const pon = b?.payments_online || {};
+  const onlineMatch = (re: RegExp) => Object.entries(pon).filter(([k]) => re.test(k.toLowerCase())).reduce((s: number, [, v]: any) => s + (v.amount || 0), 0);
+  const cash = (po["Cash"]?.amount || 0) + (po["Cash deposit"]?.amount || 0) + onlineMatch(/cash|cod/);
+  const upi = (po["UPI"]?.amount || 0) + onlineMatch(/upi/);
+  const card = (po["Card"]?.amount || 0) + onlineMatch(/card/);
+  const allPay = [...Object.values(pon), ...Object.values(po)].reduce((s: number, v: any) => s + (v.amount || 0), 0);
+  const gateway = Math.max(0, allPay - cash - upi - card);
+  return {
+    total: (b?.online?.sales || 0) + (b?.offline?.sales || 0),
+    totalO: (b?.online?.orders || 0) + (b?.offline?.orders || 0),
+    walkinAmt: (b?.offline_sub?.walkin?.sales || 0) + (b?.offline_sub?.untagged_channel?.sales || 0),
+    walkinOrd: (b?.offline_sub?.walkin?.orders || 0) + (b?.offline_sub?.untagged_channel?.orders || 0),
+    onlineAmt: b?.online?.sales || 0, onlineOrd: b?.online?.orders || 0,
+    waAmt: b?.offline_sub?.whatsapp?.sales || 0, waOrd: b?.offline_sub?.whatsapp?.orders || 0,
+    cash, upi, card, gateway,
+  };
+}
 
 const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition placeholder:text-gray-300";
 
@@ -91,59 +114,121 @@ function RegisterCategoryModal({ existing, onSave, onClose }: { existing: ExpCat
 }
 
 // ── Handover Modal ────────────────────────────────────────────────────────────
+interface HandoverTarget { id: string; kind: string; label: string; detail: string | null; }
+
 function HandoverModal({ registerId, onSave, onClose }: { registerId: string; onSave: (h: Handover) => void; onClose: () => void }) {
   const sb = useSB();
-  const [type, setType] = useState("bank_deposit");
+  const [type, setType] = useState<"bank_deposit" | "hq_handover">("bank_deposit");
   const [amount, setAmount] = useState("");
   const [ref, setRef] = useState("");
-  const [handedTo, setHandedTo] = useState("");
   const [notes, setNotes] = useState("");
+  const [targets, setTargets] = useState<HandoverTarget[]>([]);
+  const [targetId, setTargetId] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newDetail, setNewDetail] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const TYPES = [
-    { id: "bank_deposit", label: "Bank deposit", icon: <Building2 className="w-4 h-4" />, color: "#3B82F6" },
-    { id: "hq_handover", label: "HQ handover", icon: <Send className="w-4 h-4" />, color: "#8B5CF6" },
-    { id: "petty_cash", label: "Petty cash", icon: <PiggyBank className="w-4 h-4" />, color: "#F59E0B" },
-    { id: "other", label: "Other", icon: <Wallet className="w-4 h-4" />, color: "#6B7280" },
-  ];
+  useEffect(() => {
+    (async () => {
+      const orgId = await getOrgId(sb);
+      const { data } = await sb.from("cash_handover_targets").select("id, kind, label, detail").eq("org_id", orgId).order("label");
+      setTargets((data || []) as HandoverTarget[]);
+    })();
+  }, [sb]);
+
+  const kind = type === "bank_deposit" ? "bank" : "hq";
+  const visible = targets.filter(t => t.kind === kind);
+  const selected = visible.find(t => t.id === targetId) || null;
+
+  const pickType = (t: "bank_deposit" | "hq_handover") => { setType(t); setTargetId(""); setAdding(false); setError(""); };
+
+  const addTarget = async () => {
+    if (!newLabel.trim()) { setError(kind === "bank" ? "Bank / account name required" : "Name required"); return; }
+    const orgId = await getOrgId(sb);
+    const { data, error: e } = await sb.from("cash_handover_targets")
+      .insert({ org_id: orgId, kind, label: newLabel.trim(), detail: newDetail.trim() || null })
+      .select("id, kind, label, detail").single();
+    if (e) { setError(e.message.includes("duplicate") ? "That entry already exists" : e.message); return; }
+    setTargets(p => [...p, data as HandoverTarget]);
+    setTargetId((data as HandoverTarget).id);
+    setAdding(false); setNewLabel(""); setNewDetail(""); setError("");
+  };
 
   const save = async () => {
     if (!amount || Number(amount) <= 0) { setError("Amount required"); return; }
+    if (!selected) { setError(kind === "bank" ? "Select a bank account" : "Select a recipient"); return; }
     setSaving(true);
     const orgId = await getOrgId(sb);
     const { data, error: e } = await sb.from("cash_handovers").insert({
       org_id: orgId, register_id: registerId, date: istToday(),
-      type, amount: Number(amount), reference_number: ref || null, handed_to: handedTo || null, notes: notes || null,
+      type, amount: Number(amount),
+      reference_number: ref.trim() || selected.detail || null,
+      handed_to: selected.label, notes: notes.trim() || null,
     }).select().single();
     if (e) { setError(e.message); setSaving(false); return; }
     onSave(data as Handover); onClose();
   };
 
+  const TYPES = [
+    { id: "bank_deposit" as const, label: "Bank deposit", icon: <Building2 className="w-4 h-4" />, color: "#3B82F6" },
+    { id: "hq_handover" as const, label: "HQ handover", icon: <Send className="w-4 h-4" />, color: "#8B5CF6" },
+  ];
+
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 bg-gradient-to-r from-red-500 to-orange-500 text-white flex items-center justify-between">
           <h2 className="text-base font-bold flex items-center gap-2"><ArrowUp className="w-5 h-5" />Cash out / handover</h2>
           <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg"><X className="w-4 h-4" /></button>
         </div>
         <div className="px-6 py-5 space-y-4">
-          {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2"><AlertCircle className="w-4 h-4" />{error}</div>}
+          {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2"><AlertCircle className="w-4 h-4 flex-shrink-0" />{error}</div>}
+
+          {/* Type */}
           <div className="grid grid-cols-2 gap-2">{TYPES.map(t => (
-            <button key={t.id} onClick={() => setType(t.id)} className={`p-3 rounded-xl border-2 flex items-center gap-2 transition ${type === t.id ? "border-indigo-500 bg-indigo-50" : "border-gray-200"}`}>
+            <button key={t.id} onClick={() => pickType(t.id)} className={`p-3 rounded-xl border-2 flex items-center gap-2 transition ${type === t.id ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300"}`}>
               <span style={{ color: t.color }}>{t.icon}</span><span className="text-xs font-semibold text-gray-800">{t.label}</span>
             </button>
           ))}</div>
+
+          {/* Amount + reference */}
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs font-semibold text-gray-600 mb-1">Amount (₹) *</label><input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="5000" className={inputCls} autoFocus /></div>
             <div><label className="block text-xs font-semibold text-gray-600 mb-1">Reference #</label><input value={ref} onChange={e => setRef(e.target.value)} placeholder="DEP-001" className={inputCls} /></div>
           </div>
-          <div><label className="block text-xs font-semibold text-gray-600 mb-1">Handed to</label><input value={handedTo} onChange={e => setHandedTo(e.target.value)} placeholder="Bank / Person" className={inputCls} /></div>
+
+          {/* Target: select-or-add */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-gray-600">{kind === "bank" ? "Deposit to account *" : "Handed to *"}</label>
+              {!adding && <button onClick={() => { setAdding(true); setError(""); }} className="text-xs text-indigo-600 font-semibold hover:underline flex items-center gap-0.5"><Plus className="w-3 h-3" />Add {kind === "bank" ? "account" : "name"}</button>}
+            </div>
+
+            {!adding ? (
+              <select value={targetId} onChange={e => setTargetId(e.target.value)} className={inputCls}>
+                <option value="">{visible.length ? (kind === "bank" ? "Select bank account…" : "Select recipient…") : (kind === "bank" ? "No accounts yet — add one" : "No names yet — add one")}</option>
+                {visible.map(t => <option key={t.id} value={t.id}>{t.label}{t.detail ? ` · ${t.detail}` : ""}</option>)}
+              </select>
+            ) : (
+              <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl space-y-2">
+                <input value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder={kind === "bank" ? "Bank / account name (e.g. HDFC Current)" : "Recipient name (e.g. Head office)"} className={inputCls} autoFocus />
+                {kind === "bank" && <input value={newDetail} onChange={e => setNewDetail(e.target.value)} placeholder="Account no. / IFSC (optional)" className={inputCls} />}
+                <div className="flex gap-2">
+                  <button onClick={() => { setAdding(false); setNewLabel(""); setNewDetail(""); setError(""); }} className="flex-1 py-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg font-medium">Cancel</button>
+                  <button onClick={addTarget} className="flex-1 py-2 text-xs text-white bg-indigo-600 rounded-lg font-semibold hover:bg-indigo-700 flex items-center justify-center gap-1"><Plus className="w-3 h-3" />Save {kind === "bank" ? "account" : "name"}</button>
+                </div>
+              </div>
+            )}
+            {selected?.detail && !adding && <p className="text-[11px] text-gray-400 mt-1">{selected.detail}</p>}
+          </div>
+
           <div><label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label><input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" className={inputCls} /></div>
         </div>
         <div className="px-6 py-4 border-t bg-gray-50 flex gap-3">
           <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 bg-white border border-gray-200 rounded-xl font-medium">Cancel</button>
-          <button onClick={save} disabled={saving} className="flex-1 py-2.5 text-sm text-white bg-red-500 rounded-xl font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
+          <button onClick={save} disabled={saving} className="flex-1 py-2.5 text-sm text-white bg-red-500 rounded-xl font-semibold disabled:opacity-50 flex items-center justify-center gap-2 hover:bg-red-600">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}Record
           </button>
         </div>
@@ -210,16 +295,31 @@ export default function CashRegisterPage() {
     }
     if (reg) {
       setRegister(reg as Register);
-      setTotalSales(reg.total_sales ? String(reg.total_sales) : "");
-      setTotalOrders(reg.total_orders ? String(reg.total_orders) : "");
-      setWalkin({ amount: reg.walkin_amount ? String(reg.walkin_amount) : "", orders: reg.walkin_orders ? String(reg.walkin_orders) : "" });
-      setOnline({ amount: reg.online_amount ? String(reg.online_amount) : "", orders: reg.online_orders ? String(reg.online_orders) : "" });
-      setWhatsapp({ amount: reg.whatsapp_amount ? String(reg.whatsapp_amount) : "", orders: reg.whatsapp_orders ? String(reg.whatsapp_orders) : "" });
-      setPayCash(reg.pay_cash ? String(reg.pay_cash) : "");
-      setPayUpi(reg.pay_upi ? String(reg.pay_upi) : "");
-      setPayCard(reg.pay_card ? String(reg.pay_card) : "");
-      setPayGateway(reg.pay_gateway ? String(reg.pay_gateway) : "");
-      setBreakdown(reg.shopify_breakdown || null);
+      const bd = reg.shopify_breakdown;
+      if (bd && !(reg.total_sales > 0)) {
+        // Columns not yet persisted (pulled before route stored them) — derive from breakdown.
+        const c = colsFromBreakdown(bd);
+        setTotalSales(c.total ? String(round2(c.total)) : "");
+        setTotalOrders(c.totalO ? String(c.totalO) : "");
+        setWalkin({ amount: c.walkinAmt ? String(round2(c.walkinAmt)) : "", orders: c.walkinOrd ? String(c.walkinOrd) : "" });
+        setOnline({ amount: c.onlineAmt ? String(round2(c.onlineAmt)) : "", orders: c.onlineOrd ? String(c.onlineOrd) : "" });
+        setWhatsapp({ amount: c.waAmt ? String(round2(c.waAmt)) : "", orders: c.waOrd ? String(c.waOrd) : "" });
+        setPayCash(c.cash ? String(round2(c.cash)) : "");
+        setPayUpi(c.upi ? String(round2(c.upi)) : "");
+        setPayCard(c.card ? String(round2(c.card)) : "");
+        setPayGateway(c.gateway ? String(round2(c.gateway)) : "");
+      } else {
+        setTotalSales(reg.total_sales ? String(reg.total_sales) : "");
+        setTotalOrders(reg.total_orders ? String(reg.total_orders) : "");
+        setWalkin({ amount: reg.walkin_amount ? String(reg.walkin_amount) : "", orders: reg.walkin_orders ? String(reg.walkin_orders) : "" });
+        setOnline({ amount: reg.online_amount ? String(reg.online_amount) : "", orders: reg.online_orders ? String(reg.online_orders) : "" });
+        setWhatsapp({ amount: reg.whatsapp_amount ? String(reg.whatsapp_amount) : "", orders: reg.whatsapp_orders ? String(reg.whatsapp_orders) : "" });
+        setPayCash(reg.pay_cash ? String(reg.pay_cash) : "");
+        setPayUpi(reg.pay_upi ? String(reg.pay_upi) : "");
+        setPayCard(reg.pay_card ? String(reg.pay_card) : "");
+        setPayGateway(reg.pay_gateway ? String(reg.pay_gateway) : "");
+      }
+      setBreakdown(bd || null);
     }
 
     // Pending-payment watchlist (open items, all dates since go-live)
@@ -371,6 +471,11 @@ export default function CashRegisterPage() {
     setExpenses(p => p.filter(e => e.id !== id));
   };
 
+  const deleteHandover = async (id: string) => {
+    await sb.from("cash_handovers").delete().eq("id", id);
+    setHandovers(p => p.filter(h => h.id !== id));
+  };
+
   // Date nav
   const prevDay = () => { const d = new Date(date); d.setDate(d.getDate() - 1); setDate(d.toISOString().split("T")[0]); };
   const nextDay = () => { const d = new Date(date); d.setDate(d.getDate() + 1); const ns = d.toISOString().split("T")[0]; if (ns <= istToday()) setDate(ns); };
@@ -444,7 +549,7 @@ export default function CashRegisterPage() {
               <p className="text-xs text-gray-400 mt-0.5">Pulled from Shopify — online &amp; offline totals with the full payment split.</p>
             </div>
             <div className="flex items-center gap-3">
-              {register?.shopify_pulled_at && <span className="text-[10px] text-gray-400 whitespace-nowrap">pulled {new Date(register.shopify_pulled_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST</span>}
+              {register?.shopify_pulled_at && <span className="text-[10px] text-gray-400 whitespace-nowrap">Pulled {new Date(register.shopify_pulled_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST</span>}
               <button onClick={pullShopify} disabled={pulling}
                 className="flex items-center gap-1.5 px-3 py-2 bg-[#0f172a] text-white text-xs font-semibold rounded-lg hover:bg-[#1e293b] disabled:opacity-50 whitespace-nowrap">
                 {pulling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}{breakdown ? "Re-pull" : "Pull from Shopify"}
@@ -649,23 +754,41 @@ export default function CashRegisterPage() {
       {tab === "cashout" && (
         <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-gray-900">Cash out / handovers</h3>
-            <button onClick={() => setShowHandover(true)} className="flex items-center gap-1.5 px-3 py-2 bg-red-500 text-white text-xs font-semibold rounded-lg hover:bg-red-600"><Plus className="w-3.5 h-3.5" />Add handover</button>
+            <div>
+              <h3 className="text-sm font-bold text-gray-900">Cash out / handovers</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Cash moved out of the till — bank deposits and HQ handovers.</p>
+            </div>
+            <button onClick={() => setShowHandover(true)} className="flex items-center gap-1.5 px-3 py-2 bg-red-500 text-white text-xs font-semibold rounded-lg hover:bg-red-600 transition"><Plus className="w-3.5 h-3.5" />Add handover</button>
           </div>
-          {handovers.length === 0 ? <p className="text-xs text-gray-400 text-center py-8">No handovers today</p> : (
+          {handovers.length === 0 ? (
+            <div className="text-center py-10">
+              <ArrowUp className="w-9 h-9 text-gray-200 mx-auto mb-2" />
+              <p className="text-sm text-gray-400">No handovers for this date</p>
+            </div>
+          ) : (
             <div className="space-y-2">
-              {handovers.map(h => (
-                <div key={h.id} className="flex items-center gap-3 p-3 bg-red-50 rounded-xl border border-red-100">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-red-200 text-red-500">
-                    {h.type === "bank_deposit" ? <Building2 className="w-4 h-4" /> : h.type === "hq_handover" ? <Send className="w-4 h-4" /> : <Wallet className="w-4 h-4" />}
+              {handovers.map(h => {
+                const isBank = h.type === "bank_deposit";
+                const accent = isBank ? "#3B82F6" : h.type === "hq_handover" ? "#8B5CF6" : "#94A3B8";
+                const typeLabel = isBank ? "Bank deposit" : h.type === "hq_handover" ? "HQ handover" : h.type.replace(/_/g, " ");
+                return (
+                  <div key={h.id} className="group flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50/60 transition">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: accent + "15", color: accent }}>
+                      {isBank ? <Building2 className="w-4 h-4" /> : h.type === "hq_handover" ? <Send className="w-4 h-4" /> : <Wallet className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">{h.handed_to || typeLabel}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: accent }}>{typeLabel}</span>
+                        {h.reference_number && <span className="text-[10px] text-gray-400">· {h.reference_number}</span>}
+                        {h.notes && <span className="text-[10px] text-gray-400 truncate">· {h.notes}</span>}
+                      </div>
+                    </div>
+                    <span className="text-sm font-bold text-red-600 whitespace-nowrap">-{fmtINR(h.amount)}</span>
+                    <button onClick={() => deleteHandover(h.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg sm:opacity-0 sm:group-hover:opacity-100 transition"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900 capitalize">{h.type.replace(/_/g, " ")}</p>
-                    <p className="text-xs text-gray-500">{h.handed_to || "—"}{h.reference_number ? ` · ${h.reference_number}` : ""}</p>
-                  </div>
-                  <span className="text-sm font-bold text-red-600">-{fmtINR(h.amount)}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           <div className="flex justify-between pt-4 mt-4 border-t border-gray-100">
