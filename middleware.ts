@@ -1,7 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { MODULES } from "@/lib/modules";
 
-// Pages that require a valid session
 const PROTECTED = [
   "/dashboard", "/organizations", "/employees", "/attendance", "/payroll",
   "/loans", "/leaves", "/approvals", "/offboarding", "/letters", "/store", "/cashflow",
@@ -9,10 +9,8 @@ const PROTECTED = [
   "/reports", "/me", "/my-attendance", "/org-structure",
 ];
 
-// Everything except the super-admin platform page
 const FULL_APP = PROTECTED.filter((p) => p !== "/organizations");
 
-// Default landing page per role (also fallback when a role hits a page it can't access)
 const HOME: Record<string, string> = {
   super_admin: "/organizations",
   owner: "/dashboard",
@@ -22,18 +20,18 @@ const HOME: Record<string, string> = {
   employee: "/me",
 };
 
-// Allowed path prefixes per role
 const ACCESS: Record<string, string[]> = {
   super_admin: ["/organizations"],
   owner: FULL_APP,
-  admin: FULL_APP, // billing distinction handled inside /settings UI, not here
+  admin: FULL_APP,
   hr: ["/dashboard", "/employees", "/attendance", "/payroll", "/loans", "/leaves",
        "/approvals", "/documents", "/compliance", "/reports", "/me", "/my-attendance", "/org-structure"],
   manager: ["/dashboard", "/approvals", "/attendance", "/leaves", "/me", "/my-attendance"],
   employee: ["/me", "/my-attendance", "/attendance", "/leaves", "/approvals"],
 };
 
-// Boundary-aware match: "/me" matches /me and /me/* but NOT /menu
+const CONFIGURABLE_KEYS = new Set(MODULES.filter((m) => m.configurable).map((m) => m.key));
+
 function matchPath(pathname: string, prefixes: string[]): boolean {
   return prefixes.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
@@ -41,8 +39,49 @@ function matchPath(pathname: string, prefixes: string[]): boolean {
 function canAccess(role: string | null, pathname: string): boolean {
   if (!role) return false;
   const allowed = ACCESS[role];
-  if (!allowed) return false; // unknown role
+  if (!allowed) return false;
   return matchPath(pathname, allowed);
+}
+
+function moduleKeyFor(pathname: string): string | null {
+  const seg = "/" + (pathname.split("/")[1] || "");
+  return CONFIGURABLE_KEYS.has(seg) ? seg : null;
+}
+
+async function hasModuleGrant(
+  supabase: ReturnType<typeof createServerClient>,
+  userId: string,
+  role: string,
+  moduleKey: string
+): Promise<boolean> {
+  try {
+    const { data: ov } = await supabase
+      .from("user_module_overrides")
+      .select("enabled")
+      .eq("user_id", userId)
+      .eq("module_key", moduleKey)
+      .maybeSingle();
+    if (ov) return !!ov.enabled;
+
+    const { data: u } = await supabase
+      .from("users")
+      .select("org_id")
+      .eq("id", userId)
+      .maybeSingle();
+    if (u?.org_id) {
+      const { data: rp } = await supabase
+        .from("module_permissions")
+        .select("enabled")
+        .eq("org_id", u.org_id)
+        .eq("role", role)
+        .eq("module_key", moduleKey)
+        .maybeSingle();
+      if (rp) return !!rp.enabled;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export async function middleware(request: NextRequest) {
@@ -54,7 +93,6 @@ export async function middleware(request: NextRequest) {
 
   const sessionToken = request.cookies.get("session_token")?.value;
 
-  // Unauthenticated user hitting a protected page → login
   if (isProtected && !sessionToken) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
@@ -62,32 +100,31 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Nothing to validate
   if (!sessionToken || (!isProtected && !isAuthPage)) {
     return response;
   }
 
-  // Validate the session once (needed for both access control and auth-page redirects)
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get: (name) => request.cookies.get(name)?.value,
+        set: (name: string, value: string, options: CookieOptions) => {
+          response.cookies.set({ name, value, ...options });
+        },
+        remove: (name: string, options: CookieOptions) => {
+          response.cookies.set({ name, value: "", ...options });
+        },
+      },
+    }
+  );
+
   let role: string | null = null;
+  let userId: string | null = null;
   let valid = false;
 
   try {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get: (name) => request.cookies.get(name)?.value,
-          set: (name: string, value: string, options: CookieOptions) => {
-            response.cookies.set({ name, value, ...options });
-          },
-          remove: (name: string, options: CookieOptions) => {
-            response.cookies.set({ name, value: "", ...options });
-          },
-        },
-      }
-    );
-
     const { data: session } = await supabase
       .from("user_sessions")
       .select("user_id, role, expires_at")
@@ -99,27 +136,24 @@ export async function middleware(request: NextRequest) {
       if (r && r in HOME) {
         valid = true;
         role = r;
+        userId = session.user_id;
       }
-      // null/unknown role → leave invalid (forces re-login; legacy pre-role sessions)
     }
   } catch {
-    // DB error: redirect to login in prod, let through in dev
     if (isProtected && process.env.NODE_ENV === "production") {
       return NextResponse.redirect(new URL("/login", request.url));
     }
     return response;
   }
 
-  // Logged-in user on an auth page → bounce to their role home
   if (isAuthPage) {
     if (valid) {
       return NextResponse.redirect(new URL(HOME[role!], request.url));
     }
-    response.cookies.delete("session_token"); // stale token
+    response.cookies.delete("session_token");
     return response;
   }
 
-  // Protected page, invalid/expired session → clear cookie, login
   if (!valid) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
@@ -128,8 +162,11 @@ export async function middleware(request: NextRequest) {
     return res;
   }
 
-  // Valid session but role not allowed on this path → send to role home
   if (!canAccess(role, pathname)) {
+    const modKey = moduleKeyFor(pathname);
+    if (modKey && userId && (await hasModuleGrant(supabase, userId, role!, modKey))) {
+      return response;
+    }
     return NextResponse.redirect(new URL(HOME[role!], request.url));
   }
 
