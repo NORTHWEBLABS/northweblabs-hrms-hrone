@@ -31,8 +31,8 @@ const fmtD = (d: string | null | undefined) => d ? new Date(d).toLocaleDateStrin
 const COLORS = ["#6366F1","#22C55E","#F59E0B","#EF4444","#8B5CF6","#06B6D4","#EC4899","#14B8A6"];
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-type DateRange = "today" | "this_week" | "this_month" | "this_quarter" | "this_year" | "last_month" | "last_quarter" | "custom";
-type Module = "overview" | "sales" | "expenses" | "reimbursements" | "employees" | "invoices" | "cashflow";
+type DateRange = "today" | "yesterday" | "this_week" | "this_month" | "this_quarter" | "this_year" | "last_month" | "last_quarter" | "financial_year" | "custom";
+type Module = "overview" | "sales" | "store" | "expenses" | "reimbursements" | "employees" | "invoices" | "cashflow";
 
 const REIMB_STATUS: Record<string, string> = { pending: "bg-amber-100 text-amber-700", approved: "bg-emerald-100 text-emerald-700", rejected: "bg-red-100 text-red-600", reimbursed: "bg-blue-100 text-blue-700" };
 
@@ -41,14 +41,39 @@ function getDateRange(range: DateRange): { from: string; to: string } {
   const fmt = (dt: Date) => dt.toISOString().split("T")[0];
   switch (range) {
     case "today": return { from: fmt(now), to: fmt(now) };
+    case "yesterday": { const yd = new Date(now); yd.setDate(d - 1); return { from: fmt(yd), to: fmt(yd) }; }
     case "this_week": { const mon = new Date(now); mon.setDate(d - (now.getDay() || 7) + 1); return { from: fmt(mon), to: fmt(now) }; }
     case "this_month": return { from: `${y}-${String(m + 1).padStart(2, "0")}-01`, to: fmt(now) };
     case "last_month": { const lm = new Date(y, m - 1, 1); return { from: fmt(lm), to: fmt(new Date(y, m, 0)) }; }
     case "this_quarter": { const qStart = new Date(y, Math.floor(m / 3) * 3, 1); return { from: fmt(qStart), to: fmt(now) }; }
     case "last_quarter": { const lqS = new Date(y, Math.floor(m / 3) * 3 - 3, 1); const lqE = new Date(y, Math.floor(m / 3) * 3, 0); return { from: fmt(lqS), to: fmt(lqE) }; }
     case "this_year": return { from: `${y}-01-01`, to: fmt(now) };
+    case "financial_year": { const fyStart = m >= 3 ? new Date(y, 3, 1) : new Date(y - 1, 3, 1); return { from: fmt(fyStart), to: fmt(now) }; }
     default: return { from: `${y}-${String(m + 1).padStart(2, "0")}-01`, to: fmt(now) };
   }
+}
+
+// Derive payment buckets from a stored Shopify breakdown (fallback when columns are 0).
+function regCols(reg: any) {
+  const b = reg.shopify_breakdown;
+  if (reg.total_sales > 0 || !b) {
+    return {
+      sales: reg.total_sales || 0, orders: reg.total_orders || 0,
+      online: reg.online_amount || 0, offline: (reg.walkin_amount || 0) + (reg.whatsapp_amount || 0),
+      cash: reg.pay_cash || 0, upi: reg.pay_upi || 0, card: reg.pay_card || 0, gateway: reg.pay_gateway || 0,
+    };
+  }
+  const po = b.payments_offline || {}, pon = b.payments_online || {};
+  const onlineMatch = (re: RegExp) => Object.entries(pon).filter(([k]) => re.test(k.toLowerCase())).reduce((s: number, [, v]: any) => s + (v.amount || 0), 0);
+  const cash = (po["Cash"]?.amount || 0) + (po["Cash deposit"]?.amount || 0) + onlineMatch(/cash|cod/);
+  const upi = (po["UPI"]?.amount || 0) + onlineMatch(/upi/);
+  const card = (po["Card"]?.amount || 0) + onlineMatch(/card/);
+  const allPay = [...Object.values(pon), ...Object.values(po)].reduce((s: number, v: any) => s + (v.amount || 0), 0);
+  return {
+    sales: (b.online?.sales || 0) + (b.offline?.sales || 0), orders: (b.online?.orders || 0) + (b.offline?.orders || 0),
+    online: b.online?.sales || 0, offline: b.offline?.sales || 0,
+    cash, upi, card, gateway: Math.max(0, allPay - cash - upi - card),
+  };
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -96,15 +121,22 @@ export default function ReportsPage() {
   const [empMap, setEmpMap] = useState<Record<string, string>>({});   // employee_id -> name
   const [userMap, setUserMap] = useState<Record<string, string>>({}); // user_id -> name
   const [reimbStatus, setReimbStatus] = useState("");
+  const [registers, setRegisters] = useState<any[]>([]);
+  const today = new Date().toISOString().split("T")[0];
+  const [customFrom, setCustomFrom] = useState(today);
+  const [customTo, setCustomTo] = useState(today);
 
-  const { from, to } = useMemo(() => getDateRange(dateRange), [dateRange]);
+  const { from, to } = useMemo(
+    () => dateRange === "custom" ? { from: customFrom, to: customTo } : getDateRange(dateRange),
+    [dateRange, customFrom, customTo]
+  );
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     const oid = await getOrgId(sb);
     if (!oid) { setLoading(false); return; }
     const yesterday = new Date(new Date(from).getTime() - 86400000).toISOString().split("T")[0];
-    const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11] = await Promise.all([
+    const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12] = await Promise.all([
       sb.from("store_orders").select("*").eq("org_id", oid).gte("created_at", from + "T00:00").lte("created_at", to + "T23:59").order("created_at"),
       sb.from("expenses").select("*").eq("org_id", oid).gte("date", from).lte("date", to),
       sb.from("employees").select("id, full_name, email, department, designation, status, date_of_joining, gender, gross_salary").eq("org_id", oid),
@@ -116,11 +148,13 @@ export default function ReportsPage() {
       sb.from("expense_heads").select("id, name, parent_id").eq("org_id", oid),
       sb.from("users").select("id, full_name, email").eq("org_id", oid),
       sb.from("register_expenses").select("amount, category_name, head_name, date, payment_mode").eq("org_id", oid).gte("date", from).lte("date", to),
+      sb.from("cash_register").select("date, total_sales, total_orders, online_amount, online_orders, whatsapp_amount, whatsapp_orders, walkin_amount, walkin_orders, pay_cash, pay_upi, pay_card, pay_gateway, shopify_breakdown").eq("org_id", oid).gte("date", from).lte("date", to).order("date"),
     ]);
     setOrders(r1.data || []); setYesterdayOrders(r8.data || []); setExpenses(r2.data || []);
     setEmployees(r3.data || []); setInvoices(r4.data || []); setCashflow(r5.data || []);
     setExpCategories(r7.data || []); setHeads((r9.data || []) as Head[]);
     setRegExpenses(r11.data || []);
+    setRegisters(r12.data || []);
 
     // Build name maps for audit trail resolution
     const em: Record<string, string> = {};
@@ -270,8 +304,30 @@ export default function ReportsPage() {
     return ranges.map(r => ({ range: r.label, count: employees.filter((e: any) => (e.gross_salary || 0) >= r.min && (e.gross_salary || 0) < r.max).length }));
   }, [employees]);
 
+  // ── Store sales (Shopify cash-register) aggregated over the range ──
+  const store = useMemo(() => {
+    let sales = 0, orders = 0, online = 0, offline = 0, cash = 0, upi = 0, card = 0, gateway = 0;
+    const daily: { date: string; sales: number }[] = [];
+    registers.forEach((reg: any) => {
+      const c = regCols(reg);
+      sales += c.sales; orders += c.orders; online += c.online; offline += c.offline;
+      cash += c.cash; upi += c.upi; card += c.card; gateway += c.gateway;
+      if (c.sales > 0) daily.push({ date: new Date(reg.date + "T00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }), sales: Math.round(c.sales) });
+    });
+    const payMethods = [
+      { name: "Cash", value: Math.round(cash) }, { name: "UPI", value: Math.round(upi) },
+      { name: "Card", value: Math.round(card) }, { name: "Gateway", value: Math.round(gateway) },
+    ].filter(p => p.value > 0).map((p, i) => ({ ...p, fill: COLORS[i % COLORS.length] }));
+    const channel = [
+      { name: "Online", value: Math.round(online), fill: "#6366F1" },
+      { name: "Offline", value: Math.round(offline), fill: "#F59E0B" },
+    ].filter(c => c.value > 0);
+    return { sales, orders, online, offline, cash, upi, card, gateway, daily, payMethods, channel, days: registers.length };
+  }, [registers]);
+
   const MODULES: { id: Module; label: string; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", icon: <Layers className="w-4 h-4" /> },
+    { id: "store", label: "Store sales", icon: <ShoppingCart className="w-4 h-4" /> },
     { id: "sales", label: "Sales", icon: <ShoppingCart className="w-4 h-4" /> },
     { id: "expenses", label: "Expenses", icon: <Receipt className="w-4 h-4" /> },
     { id: "reimbursements", label: "Reimbursements", icon: <Wallet className="w-4 h-4" /> },
@@ -291,10 +347,20 @@ export default function ReportsPage() {
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl flex-wrap">
           {MODULES.map(m => <button key={m.id} onClick={() => setModule(m.id)} className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition ${module === m.id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>{m.icon}{m.label}</button>)}
         </div>
-        <div className="flex gap-1.5 flex-wrap">
-          {(["today","this_week","this_month","last_month","this_quarter","this_year"] as DateRange[]).map(r => (
-            <button key={r} onClick={() => setDateRange(r)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${dateRange === r ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-600 border-gray-200"}`}>{r.replace("_", " ").replace(/^\w/, c => c.toUpperCase())}</button>
-          ))}
+        <div className="flex gap-1.5 flex-wrap items-center">
+          {(["today","yesterday","this_week","this_month","last_month","this_year","financial_year","custom"] as DateRange[]).map(r => {
+            const labels: Record<string, string> = { today: "Today", yesterday: "Yesterday", this_week: "Weekly", this_month: "MTD", last_month: "Last month", this_year: "YTD", financial_year: "FY", custom: "Custom" };
+            return (
+              <button key={r} onClick={() => setDateRange(r)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${dateRange === r ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"}`}>{labels[r]}</button>
+            );
+          })}
+          {dateRange === "custom" && (
+            <div className="flex items-center gap-1.5 ml-1">
+              <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)} className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+              <span className="text-xs text-gray-400">to</span>
+              <input type="date" value={customTo} min={customFrom} max={today} onChange={e => setCustomTo(e.target.value)} className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+            </div>
+          )}
         </div>
       </div>
 
@@ -350,6 +416,37 @@ export default function ReportsPage() {
                 </ResponsiveContainer>
               </ChartCard>
             </div>
+          </>)}
+
+          {/* STORE SALES — Shopify cash-register, aggregated over the range */}
+          {module === "store" && (<>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard label="Total sales" value={fmtINR(store.sales)} sub={`${store.orders} orders · ${store.days} day${store.days !== 1 ? "s" : ""}`} icon={<ShoppingCart className="w-5 h-5 text-indigo-500" />} />
+              <StatCard label="Online" value={fmtINR(store.online)} sub={store.sales > 0 ? `${Math.round((store.online / store.sales) * 100)}%` : "—"} icon={<IndianRupee className="w-5 h-5 text-blue-500" />} />
+              <StatCard label="Offline" value={fmtINR(store.offline)} sub={store.sales > 0 ? `${Math.round((store.offline / store.sales) * 100)}%` : "—"} icon={<Receipt className="w-5 h-5 text-amber-500" />} />
+              <StatCard label="Avg / day" value={fmtINR(store.days > 0 ? store.sales / store.days : 0)} icon={<TrendingUp className="w-5 h-5 text-emerald-500" />} />
+            </div>
+
+            {store.sales === 0 ? (
+              <ChartCard title="Store sales"><div className="text-center py-10"><ShoppingCart className="w-9 h-9 text-gray-200 mx-auto mb-2" /><p className="text-sm text-gray-400">No Shopify sales pulled in this range</p></div></ChartCard>
+            ) : (<>
+              <ChartCard title="Daily sales">
+                <ResponsiveContainer width="100%" height={220}><BarChart data={store.daily}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="date" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} /><Tooltip content={<CustomTooltip />} /><Bar dataKey="sales" fill="#6366F1" radius={[4,4,0,0]} name="Sales" /></BarChart></ResponsiveContainer>
+              </ChartCard>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ChartCard title="Payment method">
+                  <ResponsiveContainer width="100%" height={240}><RePieChart><Pie data={store.payMethods} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={3} label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: 11 }}>{store.payMethods.map((e, i) => <Cell key={i} fill={e.fill} />)}</Pie><Tooltip content={<CustomTooltip />} /></RePieChart></ResponsiveContainer>
+                </ChartCard>
+                <ChartCard title="Online vs offline">
+                  <ResponsiveContainer width="100%" height={240}><RePieChart><Pie data={store.channel} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={3} label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: 11 }}>{store.channel.map((e, i) => <Cell key={i} fill={e.fill} />)}</Pie><Tooltip content={<CustomTooltip />} /></RePieChart></ResponsiveContainer>
+                </ChartCard>
+              </div>
+
+              <ChartCard title="Payment method totals">
+                <ResponsiveContainer width="100%" height={200}><BarChart data={store.payMethods} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} /><YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={70} /><Tooltip content={<CustomTooltip />} /><Bar dataKey="value" radius={[0,4,4,0]} name="Amount">{store.payMethods.map((e, i) => <Cell key={i} fill={e.fill} />)}</Bar></BarChart></ResponsiveContainer>
+              </ChartCard>
+            </>)}
           </>)}
 
           {/* SALES */}

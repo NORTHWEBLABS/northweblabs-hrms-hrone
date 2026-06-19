@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import {
   Plus, X, Loader2, CheckCircle2, AlertCircle, ArrowDown, ArrowUp,
-  Wallet, ChevronLeft, ChevronRight, ChevronDown, RefreshCw,
+  Wallet, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Calendar,
   Building2, Send,
   PiggyBank, Receipt, Tag, Trash2, Save,
   Download, ShoppingBag, Clock, AlertTriangle,
@@ -291,6 +291,67 @@ function HandoverModal({ registerId, onSave, onClose }: { registerId: string; on
   );
 }
 
+// ── Shopify-style single-date picker ──────────────────────────────────────────
+function DatePicker({ value, max, onChange }: { value: string; max: string; onChange: (d: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState(() => { const d = new Date(value + "T00:00"); return { y: d.getFullYear(), m: d.getMonth() }; });
+  useEffect(() => { const d = new Date(value + "T00:00"); setView({ y: d.getFullYear(), m: d.getMonth() }); }, [value]);
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fmt = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
+  const monthName = new Date(view.y, view.m, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const firstDow = new Date(view.y, view.m, 1).getDay();
+  const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const pick = (d: number) => { const s = fmt(view.y, view.m, d); if (s <= max) { onChange(s); setOpen(false); } };
+  const prevMonth = () => setView(v => v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 });
+  const nextMonth = () => setView(v => v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 });
+  const yesterday = () => { const d = new Date(max + "T00:00"); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; };
+
+  const label = new Date(value + "T00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+
+  return (
+    <div className="relative inline-block">
+      <button onClick={() => setOpen(o => !o)} className="flex items-center gap-2.5 px-4 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-gray-300 shadow-sm transition">
+        <Calendar className="w-4 h-4 text-indigo-500" />
+        <span className="text-sm font-bold text-gray-900">{label}</span>
+        {value === max && <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">Today</span>}
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute z-50 mt-2 left-0 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 w-[290px]">
+            <div className="flex gap-1.5 mb-3">
+              <button onClick={() => { onChange(max); setOpen(false); }} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${value === max ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"}`}>Today</button>
+              <button onClick={() => { onChange(yesterday()); setOpen(false); }} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${value === yesterday() ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"}`}>Yesterday</button>
+            </div>
+            <div className="flex items-center justify-between mb-2">
+              <button onClick={prevMonth} className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronLeft className="w-4 h-4 text-gray-500" /></button>
+              <span className="text-sm font-bold text-gray-900">{monthName}</span>
+              <button onClick={nextMonth} className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronRight className="w-4 h-4 text-gray-500" /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-0.5 mb-1">
+              {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i} className="text-center text-[10px] font-semibold text-gray-400 py-1">{d}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-0.5">
+              {cells.map((d, i) => d === null ? <div key={i} /> : (
+                <button key={i} disabled={fmt(view.y, view.m, d) > max} onClick={() => pick(d)}
+                  className={`h-8 rounded-lg text-xs font-medium transition ${fmt(view.y, view.m, d) === value ? "bg-indigo-600 text-white font-bold" : fmt(view.y, view.m, d) > max ? "text-gray-200 cursor-not-allowed" : fmt(view.y, view.m, d) === max ? "text-indigo-600 font-bold hover:bg-indigo-50" : "text-gray-700 hover:bg-gray-100"}`}>
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ══════════════════════════════════════════════════════════════════════════════
@@ -558,15 +619,9 @@ export default function CashRegisterPage() {
         <button onClick={fetchDay} className="p-2 hover:bg-gray-100 rounded-xl"><RefreshCw className="w-4 h-4 text-gray-400" /></button>
       </div>
 
-      {/* Date nav */}
-      <div className="flex items-center gap-4 mb-5">
-        <button onClick={prevDay} className="p-2 hover:bg-gray-100 rounded-xl border border-gray-200"><ChevronLeft className="w-4 h-4 text-gray-500" /></button>
-        <div className="text-center min-w-[200px]">
-          <h2 className="text-base font-bold text-gray-900">{fmtDate(date)}</h2>
-          {isToday && <span className="text-xs text-emerald-600 font-semibold">Today</span>}
-        </div>
-        <button onClick={nextDay} disabled={isToday} className="p-2 hover:bg-gray-100 rounded-xl border border-gray-200 disabled:opacity-30"><ChevronRight className="w-4 h-4 text-gray-500" /></button>
-        {!isToday && <button onClick={() => setDate(istToday())} className="text-xs text-indigo-600 font-semibold hover:underline">Today</button>}
+      {/* Date picker */}
+      <div className="mb-5">
+        <DatePicker value={date} max={istToday()} onChange={setDate} />
       </div>
 
       {/* Stat strip */}
