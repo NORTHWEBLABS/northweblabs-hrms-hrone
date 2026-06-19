@@ -132,6 +132,7 @@ export default function TasksPage() {
   // pastel theme (persisted per browser, keyed by org)
   const [columnColors, setColumnColors] = useState<Record<Status, PastelKey>>(DEFAULT_COLUMN_COLORS);
   const [boardBg, setBoardBg] = useState<string>("#f7f8fa");
+  const [cardBorder, setCardBorder] = useState<string>("match"); // "match" | PastelKey | "subtle"
   const [palette, setPalette] = useState<null | { kind: "bg" } | { kind: "col"; status: Status }>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState<null | Status>(null);
@@ -144,8 +145,8 @@ export default function TasksPage() {
   // persist theme whenever it changes
   useEffect(() => {
     if (!orgId) return;
-    try { localStorage.setItem("taskBoardTheme:" + orgId, JSON.stringify({ columnColors, boardBg })); } catch { /* ignore */ }
-  }, [orgId, columnColors, boardBg]);
+    try { localStorage.setItem("taskBoardTheme:" + orgId, JSON.stringify({ columnColors, boardBg, cardBorder })); } catch { /* ignore */ }
+  }, [orgId, columnColors, boardBg, cardBorder]);
 
   const nameOf = useCallback((id: string | null | undefined) => graph.find(e => e.id === id)?.name ?? "—", [graph]);
 
@@ -164,6 +165,7 @@ export default function TasksPage() {
           const saved = JSON.parse(raw);
           if (saved.columnColors) setColumnColors({ ...DEFAULT_COLUMN_COLORS, ...saved.columnColors });
           if (saved.boardBg) setBoardBg(saved.boardBg);
+          if (saved.cardBorder) setCardBorder(saved.cardBorder);
         }
       } catch { /* ignore */ }
 
@@ -398,14 +400,30 @@ export default function TasksPage() {
               <Palette className="w-4 h-4" />
             </button>
             {palette && (palette as any).kind === "bg" && (
-              <div className="absolute right-0 z-50 mt-2 w-44 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 px-1 mb-1.5">Background</div>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {BOARD_BGS.map(b => (
-                    <button key={b.key} title={b.label} onClick={() => { setBoardBg(b.value); setPalette(null); }}
-                      className={`h-8 rounded-lg border-2 ${boardBg === b.value ? "border-indigo-500" : "border-gray-200"}`}
-                      style={{ background: b.value }} />
-                  ))}
+              <div className="absolute right-0 z-50 mt-2 w-52 rounded-xl border border-gray-200 bg-white p-3 shadow-lg space-y-3">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Background</div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {BOARD_BGS.map(b => (
+                      <button key={b.key} title={b.label} onClick={() => setBoardBg(b.value)}
+                        className={`h-8 rounded-lg border-2 ${boardBg === b.value ? "border-indigo-500" : "border-gray-200"}`}
+                        style={{ background: b.value }} />
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Card border</div>
+                  <div className="flex gap-1.5 mb-1.5">
+                    <button onClick={() => setCardBorder("match")} className={`flex-1 rounded-lg border py-1 text-[10px] font-semibold ${cardBorder === "match" ? "border-indigo-500 text-indigo-600 bg-indigo-50" : "border-gray-200 text-gray-500"}`}>Match column</button>
+                    <button onClick={() => setCardBorder("subtle")} className={`flex-1 rounded-lg border py-1 text-[10px] font-semibold ${cardBorder === "subtle" ? "border-indigo-500 text-indigo-600 bg-indigo-50" : "border-gray-200 text-gray-500"}`}>Subtle</button>
+                  </div>
+                  <div className="grid grid-cols-8 gap-1">
+                    {PASTEL_KEYS.map(k => (
+                      <button key={k} onClick={() => setCardBorder(k)}
+                        className={`h-5 w-5 rounded-full border-2 ${cardBorder === k ? "border-gray-900" : "border-white"}`}
+                        style={{ background: COLUMN_PASTELS[k].bar }} />
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -424,6 +442,9 @@ export default function TasksPage() {
             const items = scoped.filter(t => t.status === lane.id);
             const pk = columnColors[lane.id];
             const pal = COLUMN_PASTELS[pk];
+            const cardBorderColor = cardBorder === "match" ? pal.bar
+              : cardBorder === "subtle" ? "rgba(15,23,42,0.10)"
+              : (COLUMN_PASTELS[cardBorder as PastelKey]?.bar ?? pal.bar);
             return (
               <div key={lane.id}
                 onDragOver={e => e.preventDefault()}
@@ -461,9 +482,8 @@ export default function TasksPage() {
                     const pm = PRIORITY_META[t.priority];
                     return (
                       <div key={t.id} draggable onDragStart={() => setDraggingId(t.id)} onClick={() => openDrawer(t.id)}
-                        className="group relative cursor-pointer overflow-hidden rounded-xl bg-white p-3 pl-4 shadow-[0_1px_2px_rgba(15,23,42,0.06),0_4px_12px_rgba(15,23,42,0.04)] ring-1 ring-black/[0.04] transition hover:-translate-y-0.5 hover:shadow-[0_2px_4px_rgba(15,23,42,0.08),0_8px_20px_rgba(15,23,42,0.08)] active:cursor-grabbing">
-                        {/* priority accent bar */}
-                        <span className="absolute left-0 top-0 h-full w-1.5" style={{ background: pm.color }} />
+                        className="group cursor-pointer rounded-2xl bg-white p-3 shadow-[0_1px_3px_rgba(15,23,42,0.06),0_6px_16px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:shadow-[0_2px_6px_rgba(15,23,42,0.10),0_12px_28px_rgba(15,23,42,0.12)] active:cursor-grabbing"
+                        style={{ border: `2px solid ${cardBorderColor}` }}>
                         <div className="text-[13.5px] font-semibold text-gray-900 leading-snug line-clamp-2">{t.title}</div>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: pm.bg, color: pm.color }}>{pm.label}</span>
