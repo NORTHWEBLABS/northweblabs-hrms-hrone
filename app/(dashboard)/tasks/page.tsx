@@ -1,0 +1,760 @@
+"use client";
+// Route: app/(dashboard)/tasks/page.tsx
+// Task Workspace — lane board + My/Team toggle + table + list, with TAT clock,
+// submit → verify/reject flow, and reporting-hierarchy scoping.
+
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { createBrowserClient } from "@supabase/ssr";
+import {
+  resolveSelfEmployee, loadOrgGraph, reportsUnder, type EmpNode,
+} from "@/lib/hierarchy";
+import {
+  Plus, X, Loader2, CheckCircle2, AlertCircle, Flag, Calendar, Clock,
+  Search, LayoutGrid, Table as TableIcon, List as ListIcon, RotateCcw,
+  Play, Send, Check, Trash2, ChevronRight, User as UserIcon, Users,
+} from "lucide-react";
+
+/* ─────────── types ─────────── */
+type Status = "todo" | "inprogress" | "submitted" | "verified";
+type Priority = "none" | "low" | "medium" | "high" | "urgent";
+type ChecklistItem = { id: string; text: string; done: boolean };
+
+interface Task {
+  id: string; org_id: string; title: string; description: string | null;
+  assignee_id: string | null; created_by: string | null;
+  status: Status; priority: Priority;
+  tat_hours: number | null; assigned_at: string | null; due_at: string | null;
+  started_at: string | null; submitted_at: string | null; submitted_by: string | null;
+  verified_at: string | null; verified_by: string | null;
+  reopen_count: number; checklist: ChecklistItem[];
+  created_at: string;
+}
+interface Activity { id: string; task_id: string; actor_id: string | null; action: string; detail: any; created_at: string; }
+type ViewMode = "board" | "table" | "list";
+type Scope = "mine" | "team";
+
+/* ─────────── constants ─────────── */
+const LANES: { id: Status; label: string; color: string; bg: string }[] = [
+  { id: "todo",       label: "To do",       color: "#475569", bg: "#f1f5f9" },
+  { id: "inprogress", label: "In progress", color: "#0369a1", bg: "#e0f2fe" },
+  { id: "submitted",  label: "Submitted",   color: "#a16207", bg: "#fef9c3" },
+  { id: "verified",   label: "Verified",    color: "#15803d", bg: "#dcfce7" },
+];
+const STATUS_META: Record<Status, { label: string; color: string; bg: string }> = {
+  todo:       { label: "To do",       color: "#475569", bg: "#f1f5f9" },
+  inprogress: { label: "In progress", color: "#0369a1", bg: "#e0f2fe" },
+  submitted:  { label: "Submitted",   color: "#a16207", bg: "#fef9c3" },
+  verified:   { label: "Verified",    color: "#15803d", bg: "#dcfce7" },
+};
+const PRIORITY_META: Record<Priority, { label: string; color: string; bg: string }> = {
+  none:   { label: "None",   color: "#64748b", bg: "#f1f5f9" },
+  low:    { label: "Low",    color: "#0284c7", bg: "#e0f2fe" },
+  medium: { label: "Medium", color: "#ca8a04", bg: "#fef9c3" },
+  high:   { label: "High",   color: "#ea580c", bg: "#ffedd5" },
+  urgent: { label: "Urgent", color: "#dc2626", bg: "#fee2e2" },
+};
+const PRIORITIES: Priority[] = ["none", "low", "medium", "high", "urgent"];
+const ADMIN_LIKE = ["owner", "admin", "super_admin"];
+const ASSIGN_ANYONE = ["owner", "admin", "hr", "super_admin"];
+const MANAGER_ROLES = ["owner", "admin", "hr", "manager", "super_admin"];
+
+/* ─────────── helpers ─────────── */
+const uid = () => Math.random().toString(36).slice(2, 11);
+const sbClient = () => createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+const nowIso = () => new Date().toISOString();
+
+function humanize(ms: number): string {
+  const a = Math.abs(ms);
+  const h = a / 3600000;
+  if (h < 1) return Math.max(1, Math.round(a / 60000)) + "m";
+  if (h < 48) return Math.round(h) + "h";
+  return Math.round(h / 24) + "d";
+}
+
+// TAT badge for a task
+function tatBadge(t: Task): { label: string; color: string; bg: string } | null {
+  if (t.status === "verified") return { label: "Done", color: "#15803d", bg: "#dcfce7" };
+  if (t.status === "submitted") return { label: "In review", color: "#a16207", bg: "#fef9c3" };
+  if (!t.due_at) return { label: "No TAT", color: "#64748b", bg: "#f1f5f9" };
+  const due = new Date(t.due_at).getTime();
+  const rem = due - Date.now();
+  const tatMs = (t.tat_hours ?? 0) * 3600000;
+  if (rem < 0) return { label: "Overdue " + humanize(rem), color: "#dc2626", bg: "#fee2e2" };
+  if (tatMs > 0 && rem < tatMs * 0.2) return { label: "Due in " + humanize(rem), color: "#ea580c", bg: "#ffedd5" };
+  return { label: "Due in " + humanize(rem), color: "#0f766e", bg: "#ccfbf1" };
+}
+
+const fmtDateTime = (s: string | null) =>
+  s ? new Date(s).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MAIN
+   ══════════════════════════════════════════════════════════════════════════ */
+export default function TasksPage() {
+  const sb = useMemo(() => sbClient(), []);
+
+  const [orgId, setOrgId] = useState("");
+  const [role, setRole] = useState("employee");
+  const [self, setSelf] = useState<{ employeeId: string; name: string; managerId: string | null } | null>(null);
+  const [graph, setGraph] = useState<EmpNode[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [activity, setActivity] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [view, setView] = useState<ViewMode>("board");
+  const [scope, setScope] = useState<Scope>("mine");
+  const [search, setSearch] = useState("");
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState<null | Status>(null);
+  const [rejectFor, setRejectFor] = useState<Task | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+
+  const flash = (msg: string, type: "success" | "error" = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 2600); };
+
+  const nameOf = useCallback((id: string | null | undefined) => graph.find(e => e.id === id)?.name ?? "—", [graph]);
+
+  /* ── load ── */
+  useEffect(() => {
+    (async () => {
+      const oid = typeof window !== "undefined" ? localStorage.getItem("activeOrgId") || "" : "";
+      const email = typeof window !== "undefined" ? localStorage.getItem("userEmail") || "" : "";
+      if (!oid) { setLoading(false); return; }
+      setOrgId(oid);
+
+      // role from users
+      let r = "employee";
+      if (email) {
+        const { data: u } = await sb.from("users").select("role").eq("email", email).maybeSingle();
+        if (u?.role) r = u.role;
+      }
+      setRole(r);
+
+      const g = await loadOrgGraph(sb, oid);
+      setGraph(g);
+      const me = email ? await resolveSelfEmployee(sb, email, oid) : null;
+      setSelf(me);
+
+      // default scope: managers with reports start on Team
+      const reports = me ? reportsUnder(g, me.employeeId) : new Set<string>();
+      if (ADMIN_LIKE.includes(r) || reports.size > 0) setScope("team");
+
+      const { data: ts } = await sb.from("tasks").select("*").eq("org_id", oid).order("created_at", { ascending: false });
+      setTasks((ts || []) as Task[]);
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ── derived perms ── */
+  const myId = self?.employeeId ?? null;
+  const isAdminLike = ADMIN_LIKE.includes(role);
+  const canAssignAnyone = ASSIGN_ANYONE.includes(role);
+  const isManager = MANAGER_ROLES.includes(role);
+  const myReports = useMemo(() => (myId ? reportsUnder(graph, myId) : new Set<string>()), [graph, myId]);
+  const canSeeTeam = isAdminLike || myReports.size > 0;
+
+  const isAssignee = (t: Task) => !!myId && t.assignee_id === myId;
+  const canVerify = (t: Task) =>
+    isAdminLike ||
+    (!!myId && t.created_by === myId) ||
+    (!!t.assignee_id && myReports.has(t.assignee_id)) ||
+    (!!myId && t.assignee_id === myId && t.created_by === myId);
+  const canEdit = (t: Task) => isAdminLike || (!!myId && (t.created_by === myId)) || canVerify(t);
+
+  const assignOptions = useMemo(() => {
+    if (canAssignAnyone) return graph;
+    if (isManager && myId) return graph.filter(e => myReports.has(e.id) || e.id === myId);
+    return graph.filter(e => e.id === myId);
+  }, [graph, canAssignAnyone, isManager, myId, myReports]);
+
+  /* ── scoped + filtered ── */
+  const scoped = useMemo(() => {
+    let list = tasks;
+    if (scope === "mine") {
+      list = tasks.filter(t => t.assignee_id === myId || t.created_by === myId);
+    } else {
+      if (isAdminLike) list = tasks; // see all org tasks
+      else list = tasks.filter(t => (t.assignee_id && myReports.has(t.assignee_id)) || t.assignee_id === myId || t.created_by === myId);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(t => t.title.toLowerCase().includes(q) || nameOf(t.assignee_id).toLowerCase().includes(q));
+    }
+    return list;
+  }, [tasks, scope, myId, isAdminLike, myReports, search, nameOf]);
+
+  /* ── mutations ── */
+  const patchLocal = (id: string, patch: Partial<Task>) =>
+    setTasks(prev => prev.map(t => (t.id === id ? { ...t, ...patch } : t)));
+
+  const logActivity = async (taskId: string, action: string, detail?: any) => {
+    if (!orgId) return;
+    try {
+      const { data } = await sb.from("task_activity").insert({ org_id: orgId, task_id: taskId, actor_id: myId, action, detail: detail ?? null }).select().single();
+      if (data && drawerId === taskId) setActivity(p => [data as Activity, ...p]);
+    } catch { /* best effort */ }
+  };
+
+  const createTask = async (input: {
+    title: string; description: string; assigneeId: string; tatHours: number; priority: Priority; status: Status; checklist: ChecklistItem[];
+  }) => {
+    if (!orgId || !myId) return;
+    const assigned = nowIso();
+    const due = input.tatHours > 0 ? new Date(Date.now() + input.tatHours * 3600000).toISOString() : null;
+    const row = {
+      org_id: orgId, title: input.title.trim(), description: input.description.trim() || null,
+      assignee_id: input.assigneeId || myId, created_by: myId,
+      status: input.status, priority: input.priority,
+      tat_hours: input.tatHours || null, assigned_at: assigned, due_at: due,
+      checklist: input.checklist, position: Date.now(),
+    };
+    const { data, error } = await sb.from("tasks").insert(row).select("*").single();
+    if (error) { flash(error.message, "error"); return; }
+    setTasks(prev => [data as Task, ...prev]);
+    logActivity((data as Task).id, "created", { assignee: nameOf(row.assignee_id), tat_hours: input.tatHours });
+    setShowCreate(null);
+    flash("Task created");
+  };
+
+  const startTask = async (t: Task) => {
+    const patch = { status: "inprogress" as Status, started_at: t.started_at || nowIso() };
+    patchLocal(t.id, patch);
+    await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
+    logActivity(t.id, "started");
+  };
+  const submitTask = async (t: Task) => {
+    const patch = { status: "submitted" as Status, submitted_at: nowIso(), submitted_by: myId };
+    patchLocal(t.id, patch);
+    await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
+    logActivity(t.id, "submitted");
+    flash("Submitted for review");
+  };
+  const verifyTask = async (t: Task) => {
+    const patch = { status: "verified" as Status, verified_at: nowIso(), verified_by: myId };
+    patchLocal(t.id, patch);
+    await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
+    logActivity(t.id, "verified");
+    flash("Task verified & closed");
+  };
+  const rejectTask = async (t: Task, reason: string, tatHours: number) => {
+    const due = tatHours > 0 ? new Date(Date.now() + tatHours * 3600000).toISOString() : null;
+    const patch = {
+      status: "inprogress" as Status, submitted_at: null, submitted_by: null,
+      reopen_count: (t.reopen_count || 0) + 1,
+      tat_hours: tatHours || null, assigned_at: nowIso(), due_at: due,
+    };
+    patchLocal(t.id, patch as Partial<Task>);
+    await sb.from("tasks").update({ ...patch, last_reopened_at: nowIso(), updated_at: nowIso() }).eq("id", t.id);
+    logActivity(t.id, "reopened", { reason, tat_hours: tatHours });
+    setRejectFor(null);
+    flash("Sent back with a fresh TAT");
+  };
+  const editTask = async (t: Task, patch: Partial<Task>) => {
+    patchLocal(t.id, patch);
+    await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
+  };
+  const deleteTask = async (t: Task) => {
+    setTasks(prev => prev.filter(x => x.id !== t.id));
+    setDrawerId(null);
+    await sb.from("tasks").delete().eq("id", t.id);
+  };
+
+  // status change requested via drag or buttons — routes to the right guarded action
+  const requestStatusChange = (t: Task, to: Status) => {
+    if (t.status === to) return;
+    if (to === "verified" && t.status === "submitted") {
+      if (canVerify(t)) verifyTask(t); else flash("Only the manager/creator can verify", "error");
+      return;
+    }
+    if (to === "inprogress" && t.status === "submitted") {
+      if (canVerify(t)) setRejectFor(t); else flash("Only the manager/creator can reject", "error");
+      return;
+    }
+    if (to === "submitted" && t.status === "inprogress") {
+      if (isAssignee(t)) submitTask(t); else flash("Only the assignee can submit", "error");
+      return;
+    }
+    if (to === "inprogress" && t.status === "todo") {
+      if (isAssignee(t) || canVerify(t)) startTask(t); else flash("Only the assignee can start this", "error");
+      return;
+    }
+    // any other move (e.g. backwards) — managers/admin only
+    if (isAdminLike || canVerify(t)) {
+      patchLocal(t.id, { status: to });
+      sb.from("tasks").update({ status: to, updated_at: nowIso() }).eq("id", t.id);
+      logActivity(t.id, "status_changed", { to });
+    } else {
+      flash("You can't move this card", "error");
+    }
+  };
+
+  const openDrawer = async (id: string) => {
+    setDrawerId(id);
+    const { data } = await sb.from("task_activity").select("*").eq("task_id", id).order("created_at", { ascending: false });
+    setActivity((data || []) as Activity[]);
+  };
+
+  const drawerTask = tasks.find(t => t.id === drawerId) || null;
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div>;
+
+  if (!self) return (
+    <div className="max-w-md mx-auto mt-16 text-center">
+      <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+      <p className="text-sm font-semibold text-gray-700">No employee record found for your login</p>
+      <p className="text-xs text-gray-400 mt-1">Tasks key off your employee profile. Ask an admin to link your user to an employee in this org.</p>
+    </div>
+  );
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      {/* header */}
+      <div className="flex flex-wrap items-center gap-3 mb-5">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Tasks</h1>
+          <p className="text-sm text-gray-400">Assign, track TAT and verify work across your team</p>
+        </div>
+
+        {/* scope toggle */}
+        {canSeeTeam && (
+          <div className="ml-2 flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
+            {([["mine", "My tasks", UserIcon], ["team", "Team", Users]] as const).map(([id, label, Icon]) => (
+              <button key={id} onClick={() => setScope(id)}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${scope === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+                <Icon className="w-3.5 h-3.5" />{label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* view tabs */}
+        <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
+          {([["board", "Board", LayoutGrid], ["table", "Table", TableIcon], ["list", "List", ListIcon]] as const).map(([id, label, Icon]) => (
+            <button key={id} onClick={() => setView(id)}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${view === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+              <Icon className="w-3.5 h-3.5" />{label}
+            </button>
+          ))}
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          <div className="relative">
+            <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
+              className="w-44 pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+          </div>
+          <button onClick={() => setShowCreate("todo")}
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
+            <Plus className="w-4 h-4" />New task
+          </button>
+        </div>
+      </div>
+
+      {/* views */}
+      {view === "board" && (
+        <div className="flex gap-3 overflow-x-auto pb-3">
+          {LANES.map(lane => {
+            const items = scoped.filter(t => t.status === lane.id);
+            return (
+              <div key={lane.id}
+                onDragOver={e => e.preventDefault()}
+                onDrop={() => { if (draggingId) { const t = tasks.find(x => x.id === draggingId); if (t) requestStatusChange(t, lane.id); setDraggingId(null); } }}
+                className="flex w-72 shrink-0 flex-col rounded-xl border border-gray-200 bg-gray-50/60">
+                <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200">
+                  <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ background: lane.bg, color: lane.color }}>{lane.label}</span>
+                  <span className="text-xs text-gray-400">{items.length}</span>
+                </div>
+                <div className="flex-1 space-y-2 overflow-y-auto p-2 min-h-[120px]">
+                  {items.map(t => {
+                    const badge = tatBadge(t);
+                    return (
+                      <div key={t.id} draggable onDragStart={() => setDraggingId(t.id)} onClick={() => openDrawer(t.id)}
+                        className="cursor-pointer rounded-lg border border-gray-200 bg-white p-2.5 shadow-sm hover:border-indigo-300 hover:shadow transition active:cursor-grabbing">
+                        <div className="text-sm font-semibold text-gray-900 leading-snug line-clamp-2">{t.title}</div>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: PRIORITY_META[t.priority].bg, color: PRIORITY_META[t.priority].color }}>
+                            {PRIORITY_META[t.priority].label}
+                          </span>
+                          {badge && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: badge.bg, color: badge.color }}>{badge.label}</span>}
+                          {t.reopen_count > 0 && <span className="flex items-center gap-0.5 text-[10px] font-semibold text-rose-600"><RotateCcw className="w-2.5 h-2.5" />{t.reopen_count}</span>}
+                        </div>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          {t.assignee_id && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[9px] font-bold text-white" title={nameOf(t.assignee_id)}>{nameOf(t.assignee_id).slice(0, 1)}</span>}
+                          <span className="text-[11px] text-gray-500 truncate">{nameOf(t.assignee_id)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {lane.id === "todo" && (
+                    <button onClick={() => setShowCreate("todo")} className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-gray-300 py-2 text-[11px] font-semibold text-gray-500 hover:border-indigo-300 hover:text-indigo-600">
+                      <Plus className="w-3 h-3" />Add task
+                    </button>
+                  )}
+                  {items.length === 0 && lane.id !== "todo" && (
+                    <div className="rounded-md border border-dashed border-gray-200 py-6 text-center text-[10px] text-gray-400">Nothing here</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {(view === "table" || view === "list") && (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+          {view === "table" ? (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200 text-[11px] uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">Task</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Assignee</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Status</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Priority</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">TAT</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">Due</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scoped.map(t => {
+                  const badge = tatBadge(t);
+                  return (
+                    <tr key={t.id} onClick={() => openDrawer(t.id)} className="border-b border-gray-100 hover:bg-gray-50/70 cursor-pointer">
+                      <td className="px-3 py-2.5 font-semibold text-gray-900">{t.title}{t.reopen_count > 0 && <span className="ml-1.5 text-[10px] font-semibold text-rose-500">↺{t.reopen_count}</span>}</td>
+                      <td className="px-3 py-2.5 text-gray-700">{nameOf(t.assignee_id)}</td>
+                      <td className="px-3 py-2.5"><span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: STATUS_META[t.status].bg, color: STATUS_META[t.status].color }}>{STATUS_META[t.status].label}</span></td>
+                      <td className="px-3 py-2.5"><span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: PRIORITY_META[t.priority].bg, color: PRIORITY_META[t.priority].color }}>{PRIORITY_META[t.priority].label}</span></td>
+                      <td className="px-3 py-2.5">{badge && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: badge.bg, color: badge.color }}>{badge.label}</span>}</td>
+                      <td className="px-3 py-2.5 text-gray-500 text-xs">{fmtDateTime(t.due_at)}</td>
+                    </tr>
+                  );
+                })}
+                {scoped.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-xs text-gray-400">No tasks</td></tr>}
+              </tbody>
+            </table>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {scoped.map(t => {
+                const badge = tatBadge(t);
+                return (
+                  <button key={t.id} onClick={() => openDrawer(t.id)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50/70">
+                    <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: STATUS_META[t.status].bg, color: STATUS_META[t.status].color }}>{STATUS_META[t.status].label}</span>
+                    <span className="flex-1 min-w-0 truncate text-sm font-semibold text-gray-900">{t.title}</span>
+                    {badge && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: badge.bg, color: badge.color }}>{badge.label}</span>}
+                    <span className="text-xs text-gray-500 w-28 truncate text-right">{nameOf(t.assignee_id)}</span>
+                    <ChevronRight className="w-4 h-4 text-gray-300" />
+                  </button>
+                );
+              })}
+              {scoped.length === 0 && <div className="py-12 text-center text-xs text-gray-400">No tasks</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* detail drawer */}
+      {drawerTask && (
+        <TaskDrawer
+          task={drawerTask} nameOf={nameOf} activity={activity}
+          isAssignee={isAssignee(drawerTask)} canVerify={canVerify(drawerTask)} canEdit={canEdit(drawerTask)}
+          assignOptions={assignOptions}
+          onClose={() => setDrawerId(null)}
+          onStart={() => startTask(drawerTask)}
+          onSubmit={() => submitTask(drawerTask)}
+          onVerify={() => verifyTask(drawerTask)}
+          onReject={() => setRejectFor(drawerTask)}
+          onEdit={(patch) => editTask(drawerTask, patch)}
+          onDelete={() => deleteTask(drawerTask)}
+        />
+      )}
+
+      {/* create modal */}
+      {showCreate && (
+        <CreateModal
+          defaultStatus={showCreate} myId={myId!} assignOptions={assignOptions}
+          onClose={() => setShowCreate(null)} onCreate={createTask}
+        />
+      )}
+
+      {/* reject modal */}
+      {rejectFor && (
+        <RejectModal task={rejectFor} onClose={() => setRejectFor(null)} onReject={(reason, tat) => rejectTask(rejectFor, reason, tat)} />
+      )}
+
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 border ${toast.type === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"}`}>
+          {toast.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}{toast.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────── TAT input (number + unit) ─────────── */
+function TatInput({ hours, setHours }: { hours: number; setHours: (h: number) => void }) {
+  const [unit, setUnit] = useState<"h" | "d">(hours % 24 === 0 && hours >= 24 ? "d" : "h");
+  const display = unit === "d" ? hours / 24 : hours;
+  return (
+    <div className="flex gap-1.5">
+      <input type="number" min={0} value={display || ""} onChange={e => { const v = Number(e.target.value) || 0; setHours(unit === "d" ? v * 24 : v); }}
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" placeholder="0" />
+      <select value={unit} onChange={e => { const u = e.target.value as "h" | "d"; setUnit(u); }}
+        className="px-2 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+        <option value="h">hours</option>
+        <option value="d">days</option>
+      </select>
+    </div>
+  );
+}
+
+/* ─────────── Create modal ─────────── */
+function CreateModal(props: {
+  defaultStatus: Status; myId: string; assignOptions: EmpNode[];
+  onClose: () => void;
+  onCreate: (i: { title: string; description: string; assigneeId: string; tatHours: number; priority: Priority; status: Status; checklist: ChecklistItem[] }) => void;
+}) {
+  const { myId, assignOptions, onClose, onCreate } = props;
+  const [title, setTitle] = useState("");
+  const [assignee, setAssignee] = useState(myId);
+  const [tat, setTat] = useState(24);
+  const [priority, setPriority] = useState<Priority>("medium");
+  const [showMore, setShowMore] = useState(false);
+  const [desc, setDesc] = useState("");
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
+  const [newItem, setNewItem] = useState("");
+  const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200";
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+          <h2 className="text-base font-bold text-gray-900">New task</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Title *</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="What needs doing?" className={inputCls} autoFocus />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Assignee</label>
+              <select value={assignee} onChange={e => setAssignee(e.target.value)} className={inputCls + " bg-white"}>
+                {assignOptions.map(e => <option key={e.id} value={e.id}>{e.id === myId ? `${e.name} (me)` : e.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value as Priority)} className={inputCls + " bg-white"}>
+                {PRIORITIES.map(p => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">TAT (turnaround)</label>
+            <TatInput hours={tat} setHours={setTat} />
+          </div>
+
+          {!showMore ? (
+            <button onClick={() => setShowMore(true)} className="text-xs font-semibold text-indigo-600 hover:underline">+ Add description &amp; checklist</button>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Description</label>
+                <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3} className={inputCls} placeholder="Details, context, links…" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Checklist</label>
+                {checklist.map(c => (
+                  <div key={c.id} className="flex items-center gap-2 mb-1">
+                    <span className="flex-1 text-sm text-gray-700">{c.text}</span>
+                    <button onClick={() => setChecklist(checklist.filter(x => x.id !== c.id))} className="text-gray-400 hover:text-red-600"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+                <div className="flex gap-1.5">
+                  <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && newItem.trim()) { setChecklist([...checklist, { id: uid(), text: newItem.trim(), done: false }]); setNewItem(""); } }} placeholder="Add item + Enter" className={inputCls} />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="px-6 py-3 border-t border-gray-100 flex gap-2 sticky bottom-0 bg-white">
+          <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+          <button onClick={() => title.trim() && onCreate({ title, description: desc, assigneeId: assignee, tatHours: tat, priority, status: props.defaultStatus, checklist })}
+            disabled={!title.trim()} className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50">Create task</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────── Reject modal ─────────── */
+function RejectModal({ task, onClose, onReject }: { task: Task; onClose: () => void; onReject: (reason: string, tatHours: number) => void }) {
+  const [reason, setReason] = useState("");
+  const [tat, setTat] = useState(task.tat_hours || 24);
+  const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200";
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-base font-bold text-gray-900 flex items-center gap-2"><RotateCcw className="w-4 h-4 text-rose-500" />Send back</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Reason / changes needed</label>
+            <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} className={inputCls} placeholder="What needs fixing?" autoFocus />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Fresh TAT</label>
+            <TatInput hours={tat} setHours={setTat} />
+          </div>
+        </div>
+        <div className="px-6 py-3 border-t border-gray-100 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+          <button onClick={() => onReject(reason, tat)} className="flex-1 py-2.5 bg-rose-600 text-white text-sm font-semibold rounded-xl hover:bg-rose-700">Reopen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────── Detail drawer ─────────── */
+function TaskDrawer(props: {
+  task: Task; nameOf: (id: string | null | undefined) => string; activity: Activity[];
+  isAssignee: boolean; canVerify: boolean; canEdit: boolean; assignOptions: EmpNode[];
+  onClose: () => void; onStart: () => void; onSubmit: () => void; onVerify: () => void; onReject: () => void;
+  onEdit: (patch: Partial<Task>) => void; onDelete: () => void;
+}) {
+  const { task: t, nameOf, activity, isAssignee, canVerify, canEdit, assignOptions, onClose, onStart, onSubmit, onVerify, onReject, onEdit, onDelete } = props;
+  const badge = tatBadge(t);
+  const checklist = t.checklist ?? [];
+  const checked = checklist.filter(c => c.done).length;
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(t.title);
+  const [desc, setDesc] = useState(t.description || "");
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-slate-900/20" onClick={onClose} />
+      <aside className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md flex flex-col bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ background: STATUS_META[t.status].bg, color: STATUS_META[t.status].color }}>{STATUS_META[t.status].label}</span>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* title */}
+          {editing ? (
+            <input value={title} onChange={e => setTitle(e.target.value)} className="w-full text-lg font-bold border border-gray-200 rounded-lg px-2 py-1" />
+          ) : (
+            <h2 className="text-lg font-bold text-gray-900 leading-snug">{t.title}</h2>
+          )}
+
+          {/* meta grid */}
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <Meta label="Assignee">
+              {canEdit ? (
+                <select value={t.assignee_id ?? ""} onChange={e => onEdit({ assignee_id: e.target.value || null })} className="w-full text-sm border border-gray-200 rounded-md px-1.5 py-1 bg-white">
+                  {assignOptions.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+              ) : <span className="text-gray-800">{nameOf(t.assignee_id)}</span>}
+            </Meta>
+            <Meta label="Priority">
+              {canEdit ? (
+                <select value={t.priority} onChange={e => onEdit({ priority: e.target.value as Priority })} className="w-full text-sm border border-gray-200 rounded-md px-1.5 py-1 bg-white">
+                  {PRIORITIES.map(p => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+                </select>
+              ) : <span style={{ color: PRIORITY_META[t.priority].color }} className="font-semibold">{PRIORITY_META[t.priority].label}</span>}
+            </Meta>
+            <Meta label="TAT / due">
+              <div className="flex items-center gap-1.5">
+                {badge && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: badge.bg, color: badge.color }}>{badge.label}</span>}
+              </div>
+              <div className="text-[11px] text-gray-400 mt-0.5">{fmtDateTime(t.due_at)}</div>
+            </Meta>
+            <Meta label="Created by">
+              <span className="text-gray-800">{nameOf(t.created_by)}</span>
+              {t.reopen_count > 0 && <div className="text-[11px] text-rose-500 mt-0.5">Reopened {t.reopen_count}×</div>}
+            </Meta>
+          </div>
+
+          {/* description */}
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Description</div>
+            {editing ? (
+              <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3} className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5" />
+            ) : (
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{t.description || <span className="text-gray-400">No description</span>}</p>
+            )}
+          </div>
+
+          {/* checklist */}
+          {checklist.length > 0 && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Checklist · {checked}/{checklist.length}</div>
+              <div className="space-y-1">
+                {checklist.map(c => (
+                  <label key={c.id} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input type="checkbox" checked={c.done} onChange={e => onEdit({ checklist: checklist.map(x => x.id === c.id ? { ...x, done: e.target.checked } : x) })} className="h-3.5 w-3.5" />
+                    <span className={c.done ? "line-through opacity-60" : ""}>{c.text}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* activity */}
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Activity</div>
+            <div className="space-y-2">
+              {activity.length === 0 && <p className="text-xs text-gray-400">No activity yet</p>}
+              {activity.map(a => (
+                <div key={a.id} className="flex gap-2 text-xs">
+                  <Clock className="w-3 h-3 text-gray-300 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="font-semibold text-gray-700 capitalize">{a.action.replace(/_/g, " ")}</span>
+                    {a.detail?.reason && <span className="text-gray-500"> — {a.detail.reason}</span>}
+                    <span className="text-gray-400"> · {fmtDateTime(a.created_at)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* action footer */}
+        <div className="border-t border-gray-100 px-5 py-3 space-y-2">
+          {editing ? (
+            <div className="flex gap-2">
+              <button onClick={() => setEditing(false)} className="flex-1 py-2 text-sm text-gray-600 border border-gray-200 rounded-xl">Cancel</button>
+              <button onClick={() => { onEdit({ title: title.trim() || t.title, description: desc.trim() || null }); setEditing(false); }} className="flex-1 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl">Save</button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {t.status === "todo" && isAssignee && <button onClick={onStart} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-sky-600 text-white text-sm font-semibold rounded-xl hover:bg-sky-700"><Play className="w-4 h-4" />Start</button>}
+              {t.status === "inprogress" && isAssignee && <button onClick={onSubmit} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-amber-500 text-white text-sm font-semibold rounded-xl hover:bg-amber-600"><Send className="w-4 h-4" />Submit for review</button>}
+              {t.status === "submitted" && canVerify && (
+                <>
+                  <button onClick={onVerify} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700"><Check className="w-4 h-4" />Verify &amp; close</button>
+                  <button onClick={onReject} className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white border border-rose-200 text-rose-600 text-sm font-semibold rounded-xl hover:bg-rose-50"><RotateCcw className="w-4 h-4" />Reject</button>
+                </>
+              )}
+              {canEdit && <button onClick={() => setEditing(true)} className="px-4 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Edit</button>}
+              {canEdit && <button onClick={onDelete} className="px-3 py-2.5 text-rose-500 border border-gray-200 rounded-xl hover:bg-rose-50"><Trash2 className="w-4 h-4" /></button>}
+            </div>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function Meta({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2.5 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-0.5">{label}</div>
+      {children}
+    </div>
+  );
+}
