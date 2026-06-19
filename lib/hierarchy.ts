@@ -1,16 +1,25 @@
 // lib/hierarchy.ts — reporting-chain helpers built on employees.reporting_manager_id.
 // Everything in the task workspace keys off employee ids (assignee, creator, escalation).
+// NOTE: employees has `full_name` (not `name`) and links to a login via `email` (no user_id column).
 
 type SB = any; // supabase browser/server client
 
 export interface EmpNode {
   id: string;
-  name: string;
+  name: string;                       // normalized display name (from full_name / first+last / email)
   reporting_manager_id: string | null;
 }
 
-// Resolve the logged-in user (by email) to their employees row id + role.
-// Returns null if the user has no matching employee record.
+function composeName(r: any): string {
+  if (r?.full_name && String(r.full_name).trim()) return String(r.full_name).trim();
+  const fl = [r?.first_name, r?.middle_name, r?.last_name].filter(Boolean).join(" ").trim();
+  if (fl) return fl;
+  if (r?.email) return String(r.email).split("@")[0];
+  return "Unnamed";
+}
+
+const EMP_COLS = "id, full_name, first_name, middle_name, last_name, email, reporting_manager_id";
+
 export async function resolveSelfEmployee(
   sb: SB,
   email: string,
@@ -19,25 +28,27 @@ export async function resolveSelfEmployee(
   if (!email || !orgId) return null;
   const { data } = await sb
     .from("employees")
-    .select("id, name, reporting_manager_id")
+    .select(EMP_COLS)
     .eq("org_id", orgId)
     .ilike("email", email.trim())
     .maybeSingle();
   if (!data) return null;
-  return { employeeId: data.id, name: data.name, managerId: data.reporting_manager_id ?? null };
+  return { employeeId: data.id, name: composeName(data), managerId: data.reporting_manager_id ?? null };
 }
 
-// Load the whole org's employee graph once; cheap for SMB sizes (<500 rows).
 export async function loadOrgGraph(sb: SB, orgId: string): Promise<EmpNode[]> {
   const { data } = await sb
     .from("employees")
-    .select("id, name, reporting_manager_id")
+    .select(EMP_COLS)
     .eq("org_id", orgId)
     .limit(2000);
-  return (data || []) as EmpNode[];
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    name: composeName(r),
+    reporting_manager_id: r.reporting_manager_id ?? null,
+  })) as EmpNode[];
 }
 
-// Build child-map (managerId -> direct reports) from a flat list.
 function childMap(nodes: EmpNode[]): Map<string, EmpNode[]> {
   const m = new Map<string, EmpNode[]>();
   for (const n of nodes) {
@@ -50,8 +61,6 @@ function childMap(nodes: EmpNode[]): Map<string, EmpNode[]> {
   return m;
 }
 
-// All employee ids strictly BELOW a manager (direct + indirect). Excludes the manager themselves.
-// Cycle-safe via a visited set.
 export function reportsUnder(nodes: EmpNode[], managerId: string): Set<string> {
   const kids = childMap(nodes);
   const out = new Set<string>();
@@ -66,13 +75,10 @@ export function reportsUnder(nodes: EmpNode[], managerId: string): Set<string> {
   return out;
 }
 
-// Direct reports only.
 export function directReports(nodes: EmpNode[], managerId: string): EmpNode[] {
   return nodes.filter((n) => n.reporting_manager_id === managerId);
 }
 
-// The chain UP from an employee: [managerId, managersManagerId, ...] until the top.
-// Used by escalation. Cycle-safe.
 export function managerChain(nodes: EmpNode[], employeeId: string): string[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const chain: string[] = [];
@@ -86,7 +92,6 @@ export function managerChain(nodes: EmpNode[], employeeId: string): string[] {
   return chain;
 }
 
-// Can `viewerId` see `targetId`'s tasks? True if same person or target is somewhere below viewer.
 export function canViewTasksOf(nodes: EmpNode[], viewerId: string, targetId: string): boolean {
   if (viewerId === targetId) return true;
   return reportsUnder(nodes, viewerId).has(targetId);
