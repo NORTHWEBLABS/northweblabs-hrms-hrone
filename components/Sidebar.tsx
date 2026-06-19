@@ -1,11 +1,12 @@
 "use client";
-// Component: components/Sidebar.tsx — ROLE-BASED sidebar
+// Component: components/Sidebar.tsx — ROLE-BASED sidebar + module permissions
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@supabase/ssr";
 import NotificationBell from "@/components/NotificationBell";
+import { MODULES, isAllowed } from "@/lib/modules";
 import {
   LayoutDashboard, Users, CalendarCheck, Wallet, CalendarDays,
   Calendar, GitBranch, Settings, Shield, BarChart3, Building2,
@@ -48,6 +49,7 @@ const NAV_GROUPS: NavGroup[] = [
   { label: "System", roles: ["super_admin","owner","admin"], items: [
     { label: "Documents", icon: FolderOpen, path: "/documents" },
     { label: "Reports", icon: BarChart3, path: "/reports" },
+    { label: "Access control", icon: Shield, path: "/access-control", roles: ["super_admin","owner"] },
     { label: "Settings", icon: Settings, path: "/settings" },
   ]},
 ];
@@ -65,6 +67,9 @@ export default function Sidebar({ orgName, orgId, planName, trialDaysLeft, userI
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
   const [userRole, setUserRole] = useState("employee");
+  // module permissions for this user (role defaults + per-user overrides)
+  const [rolePerms, setRolePerms] = useState<Record<string, boolean>>({});
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     NAV_GROUPS.forEach(g => { init[g.label] = g.defaultOpen || false; });
@@ -83,7 +88,7 @@ export default function Sidebar({ orgName, orgId, planName, trialDaysLeft, userI
     document.addEventListener("mousedown", handler); return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Fetch user role + orgs
+  // Fetch user role + orgs + module permissions
   useEffect(() => {
     const init = async () => {
       setLoadingOrgs(true);
@@ -94,21 +99,22 @@ export default function Sidebar({ orgName, orgId, planName, trialDaysLeft, userI
 
         if (!email) { setLoadingOrgs(false); return; }
 
-        // Get user role
-        const { data: userRows } = await sb.from("users").select("org_id, role").eq("email", email);
+        // Get user role + id
+        const { data: userRows } = await sb.from("users").select("id, org_id, role").eq("email", email);
         let detectedRole = "employee";
+        let userId = "";
         let orgIds: string[] = [];
         let userRoles: Record<string, string> = {};
 
         if (userRows) {
           userRows.forEach(u => {
             if (u.org_id) { orgIds.push(u.org_id); userRoles[u.org_id] = u.role || "employee"; }
-            // Super admin has no org_id
             if (u.role === "super_admin") detectedRole = "super_admin";
           });
-          // Get role for current org
           if (currentOrgId && userRoles[currentOrgId]) detectedRole = userRoles[currentOrgId];
           else if (detectedRole !== "super_admin" && userRows.length > 0) detectedRole = userRows[0].role || "employee";
+          const myRow = userRows.find(u => u.org_id === currentOrgId) || userRows[0];
+          userId = myRow?.id || "";
         }
 
         // Also check employees table for role
@@ -119,10 +125,22 @@ export default function Sidebar({ orgName, orgId, planName, trialDaysLeft, userI
 
         setUserRole(detectedRole);
 
+        // Module permissions: role defaults + per-user overrides (best-effort; falls back to role defaults)
+        if (currentOrgId) {
+          try {
+            const [{ data: perms }, { data: ovrs }] = await Promise.all([
+              sb.from("module_permissions").select("module_key, enabled").eq("org_id", currentOrgId).eq("role", detectedRole),
+              userId ? sb.from("user_module_overrides").select("module_key, enabled").eq("org_id", currentOrgId).eq("user_id", userId) : Promise.resolve({ data: [] as any[] }),
+            ]);
+            const rp: Record<string, boolean> = {}; (perms || []).forEach((p: any) => { rp[p.module_key] = p.enabled; });
+            const ov: Record<string, boolean> = {}; (ovrs || []).forEach((o: any) => { ov[o.module_key] = o.enabled; });
+            setRolePerms(rp); setOverrides(ov);
+          } catch {}
+        }
+
         // Fetch orgs
         let list: OrgOption[] = [];
         if (detectedRole === "super_admin") {
-          // Super admin sees ALL orgs
           const { data: allOrgs } = await sb.from("organizations").select("id, name, plan").order("created_at");
           if (allOrgs) list = allOrgs.map(o => ({ id: o.id, name: o.name || "Unnamed", plan: o.plan || "free", role: "super_admin" }));
         } else if (orgIds.length > 0) {
@@ -172,12 +190,21 @@ export default function Sidebar({ orgName, orgId, planName, trialDaysLeft, userI
 
   const handleLogout = () => { if (typeof window !== "undefined") localStorage.clear(); window.location.href = "/api/auth/signout"; };
 
-  // Filter nav by role
+  // role-only check (for non-module items like Dashboard, My Dashboard, Access control)
   const canSee = (roles?: string[]) => !roles || roles.length === 0 || roles.includes(userRole);
 
+  const moduleByPath = useMemo(() => Object.fromEntries(MODULES.map(m => [m.key, m])), []);
+
+  // Item visibility: configurable modules use permissions; everything else uses role.
+  const canSeeItem = (item: NavItem) => {
+    const mod = moduleByPath[item.path];
+    if (mod && mod.configurable) return isAllowed(mod, userRole, rolePerms[item.path], overrides[item.path]);
+    return canSee(item.roles);
+  };
+
+  // Groups are driven purely by item visibility, so per-module grants surface the right sections.
   const filteredGroups = NAV_GROUPS
-    .filter(g => canSee(g.roles))
-    .map(g => ({ ...g, items: g.items.filter(i => canSee(i.roles)) }))
+    .map(g => ({ ...g, items: g.items.filter(canSeeItem) }))
     .filter(g => g.items.length > 0);
 
   const roleLabel = userRole === "super_admin" ? "Platform Admin" : userRole.charAt(0).toUpperCase() + userRole.slice(1);
@@ -245,7 +272,7 @@ export default function Sidebar({ orgName, orgId, planName, trialDaysLeft, userI
         </div>
       )}
 
-      {/* Nav — filtered by role */}
+      {/* Nav — filtered by role + module permissions */}
       <nav className="flex-1 overflow-y-auto px-2 py-1.5">
         {filteredGroups.map(group => {
           const isOpen = openGroups[group.label];
