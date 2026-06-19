@@ -5,14 +5,6 @@ import React from 'react';
 /* ============================================================
    NorthWeb Labs — Marketing Landing Page
    Single-file Next.js App Router page (app/page.tsx)
-   All CTAs / nav / footer items are wired as links:
-     Get started / Start free  -> /signup
-     Sign in                   -> /login
-     Book a demo               -> /demo
-     Talk to sales             -> /contact
-     See it in action          -> /demo
-     Explore People            -> /product/people
-     Nav + footer              -> respective routes
    ============================================================ */
 
 const ArrowRight = ({ size = 16 }: { size?: number }) => (
@@ -86,7 +78,7 @@ const DashboardMock = ({ framed = false }: { framed?: boolean }) => (
         </div>
       </div>
       {/* Floating chips */}
-      <div className="chip chip-payroll"><i className="chip-dot" /> Payroll run · done</div>
+      <div className="chip chip-payroll"><i className="chip-dot" /> Payslip · ready</div>
       <div className="chip chip-leave">
         <span className="chip-check"><CheckIcon /></span>
         <span>
@@ -101,9 +93,7 @@ const DashboardMock = ({ framed = false }: { framed?: boolean }) => (
 /* ---------- Header ---------- */
 const NAV = [
   { label: 'Product', href: '/product' },
-  { label: 'Solutions', href: '/solutions' },
   { label: 'Pricing', href: '/pricing' },
-  { label: 'Customers', href: '/customers' },
 ];
 
 const Header = () => (
@@ -133,12 +123,12 @@ export default function Page() {
       <section className="hero">
         <div className="container hero-grid">
           <div className="hero-copy">
-            <span className="pill"><i className="pill-dot" /> New · AI leave &amp; payroll assistant</span>
+            <span className="pill"><i className="pill-dot" /> New · Per-employee work schedules &amp; weekly-offs</span>
             <h1>
               People ops,<br />without the<br /><span className="accent">busywork.</span>
             </h1>
             <p className="hero-sub">
-              Attendance, leave, payroll and performance in one calm
+              Attendance, leave, payroll and approvals in one calm
               workspace — so your team spends time on people,
               not paperwork.
             </p>
@@ -156,11 +146,11 @@ export default function Page() {
           </div>
         </div>
 
-        {/* Logo strip */}
+        {/* Module strip */}
         <div className="container logo-strip">
-          <div className="strip-label">Trusted by people teams at 12,000+ companies</div>
+          <div className="strip-label">One workspace for the whole employee lifecycle</div>
           <div className="strip-logos">
-            {['Northwind', 'Lumen', 'Atlas', 'Vertex', 'Orbit', 'Quanta'].map((c) => (
+            {['People', 'Attendance', 'Leave', 'Payroll', 'Approvals', 'Schedules'].map((c) => (
               <span key={c}>{c}</span>
             ))}
           </div>
@@ -187,8 +177,9 @@ export default function Page() {
               <div className="dark-card-body">
                 <h3>A people directory your whole company loves</h3>
                 <p>
-                  Org chart, profiles, documents and onboarding journeys
-                  — searchable, secure and always up to date.
+                  Profiles, roles and self-serve onboarding — with
+                  role-based access so everyone sees exactly what
+                  they should.
                 </p>
                 <span className="text-link">Explore People <ArrowRight size={15} /></span>
               </div>
@@ -198,8 +189,8 @@ export default function Page() {
               <span className="icon-tile blue-tile" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
               </span>
-              <h3>Attendance &amp; time</h3>
-              <p>Geo-aware clock-in, shifts, overtime and regularisation — all automatic.</p>
+              <h3>Attendance &amp; schedules</h3>
+              <p>Geo-tagged check-in, monthly grids, and weekly-off policies per employee.</p>
             </Link>
 
             <Link href="/product/leave" className="feature-card light-card">
@@ -214,16 +205,16 @@ export default function Page() {
               <span className="icon-tile amber-tile" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg>
               </span>
-              <h3>Payroll &amp; compliance</h3>
-              <p>Run accurate payroll with PF, ESI and TDS handled for you.</p>
+              <h3>Payroll &amp; payslips</h3>
+              <p>Generate payslips, track net pay and let employees download their own.</p>
             </Link>
 
-            <Link href="/product/performance" className="feature-card light-card">
+            <Link href="/signup" className="feature-card light-card">
               <span className="icon-tile indigo-tile" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><rect x="7" y="12" width="3" height="6" /><rect x="12" y="8" width="3" height="10" /><rect x="17" y="5" width="3" height="13" /></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16v12H5.2L4 17.2V4z" /><path d="m9 9 2 2 4-4" /></svg>
               </span>
-              <h3>Performance</h3>
-              <p>Goals, check-ins and reviews that actually fit how people work.</p>
+              <h3>Approvals &amp; reimbursements</h3>
+              <p>Leave and expense claims routed to the right approver, with email and in-app alerts.</p>
             </Link>
           </div>
         </div>
@@ -239,22 +230,22 @@ export default function Page() {
               <li>
                 <span className="check-badge"><CheckIcon /></span>
                 <div>
-                  <h4>Run payroll in minutes</h4>
-                  <p>Auto-calculated salaries, taxes and payslips — approve and you&rsquo;re done.</p>
+                  <h4>Payslips in minutes</h4>
+                  <p>Generate payslips and net pay, then approve &mdash; done.</p>
                 </div>
               </li>
               <li>
                 <span className="check-badge"><CheckIcon /></span>
                 <div>
                   <h4>Approvals that don&rsquo;t pile up</h4>
-                  <p>Leave, reimbursements and timesheets routed to the right person instantly.</p>
+                  <p>Leave and reimbursements routed to the right person instantly.</p>
                 </div>
               </li>
               <li>
                 <span className="check-badge"><CheckIcon /></span>
                 <div>
                   <h4>Reports leadership trusts</h4>
-                  <p>Headcount, attrition and cost dashboards, exportable in a click.</p>
+                  <p>Expense, attendance and cost views you can filter by date range.</p>
                 </div>
               </li>
             </ul>
@@ -266,14 +257,14 @@ export default function Page() {
         </div>
       </section>
 
-      {/* ============ STATS ============ */}
-      <section className="stats" aria-label="Key statistics">
+      {/* ============ WHAT'S INSIDE ============ */}
+      <section className="stats" aria-label="What's inside">
         <div className="container stats-grid">
           {[
-            { num: '12k+', label: 'companies' },
-            { num: '2M+', label: 'payslips run' },
-            { num: '99.98%', label: 'uptime' },
-            { num: '4.9 / 5', label: 'avg. rating' },
+            { num: '6', label: 'roles · owner to employee' },
+            { num: 'Geo', label: 'location-tagged check-in' },
+            { num: '1', label: 'workspace for HR ops' },
+            { num: '100%', label: 'self-serve for employees' },
           ].map((s) => (
             <div key={s.label} className="stat">
               <div className="stat-num">{s.num}</div>
@@ -293,40 +284,40 @@ export default function Page() {
           </p>
           <div className="india-grid">
             <div className="india-card blue">
-              <span className="india-pill blue">Payroll</span>
-              <h3>Run payroll in minutes, not hours.</h3>
+              <span className="india-pill blue">Attendance</span>
+              <h3>Check-in that knows where you are.</h3>
               <p>
-                Auto-calculate PF, ESI, PT, and TDS. Generate
-                salary slips and send them via WhatsApp. One
-                click — done.
+                Employees clock in and out from their dashboard &mdash;
+                location-tagged and time-stamped. Mark attendance
+                in bulk or import a CSV.
               </p>
               <div className="india-divider" />
-              <div className="india-stat blue">94%</div>
-              <div className="india-stat-label">reduction in payroll errors</div>
+              <div className="india-stat blue">Geo</div>
+              <div className="india-stat-label">location-tagged check-in</div>
             </div>
             <div className="india-card purple">
-              <span className="india-pill purple">Attendance</span>
-              <h3>Your staff check in on WhatsApp.</h3>
+              <span className="india-pill purple">Leave &amp; claims</span>
+              <h3>Approvals that route themselves.</h3>
               <p>
-                No app to install. Employees send &lsquo;IN&rsquo; on
-                WhatsApp and you see it live on your dashboard.
-                Geo-tagged, time-stamped.
+                Staff apply for leave and file reimbursements in a
+                tap. Each request goes to the right approver with
+                email and in-app alerts &mdash; nothing gets lost.
               </p>
               <div className="india-divider" />
-              <div className="india-stat purple">&lt; 30s</div>
-              <div className="india-stat-label">average check-in time</div>
+              <div className="india-stat purple">Auto</div>
+              <div className="india-stat-label">routing &amp; notifications</div>
             </div>
             <div className="india-card gray">
-              <span className="india-pill gray">Compliance</span>
-              <h3>Never miss a filing deadline again.</h3>
+              <span className="india-pill gray">Schedules &amp; access</span>
+              <h3>Set the work week. Control who sees what.</h3>
               <p>
-                Auto-generated compliance calendar for PF,
-                ESIC, PT, TDS, and GST. Alerts 30 days before
-                every due date.
+                Define weekly-offs as an org standard with
+                per-employee overrides, and grant or restrict each
+                module by role &mdash; owner down to employee.
               </p>
               <div className="india-divider" />
-              <div className="india-stat dark">₹0</div>
-              <div className="india-stat-label">in penalties for our customers</div>
+              <div className="india-stat dark">6</div>
+              <div className="india-stat-label">roles with module-level access</div>
             </div>
           </div>
         </div>
@@ -340,8 +331,8 @@ export default function Page() {
             <span className="banner-n n2" aria-hidden="true">N</span>
             <h2>Give your people team their time back.</h2>
             <p>
-              Start free in minutes. No credit card, no migrations headache —
-              we&rsquo;ll bring your data over.
+              Start free in minutes. No credit card, no setup headache &mdash;
+              add your team and go.
             </p>
             <div className="cta-banner-actions">
               <Link href="/signup" className="btn btn-white">Start free <ArrowRight /></Link>
@@ -526,7 +517,7 @@ export default function Page() {
         .chip-leave strong { display: block; font-size: 14px; }
         .chip-leave em { display: block; font-style: normal; font-size: 12.5px; color: #67718a; }
 
-        /* ---------- Logo strip ---------- */
+        /* ---------- Module strip ---------- */
         .logo-strip { margin-top: 96px; text-align: center; }
         .strip-label {
           font-family: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -609,7 +600,7 @@ export default function Page() {
         .speed-list h4 { font-size: 17.5px; font-weight: 800; margin-bottom: 5px; }
         .speed-list p { font-size: 15.5px; line-height: 1.6; color: #4a5468; }
 
-        /* ---------- Stats ---------- */
+        /* ---------- What's inside ---------- */
         .stats {
           background: #0b1220;
           background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
@@ -702,7 +693,6 @@ export default function Page() {
           .hero { padding: 64px 0 56px; }
           .hero-grid, .speed-grid { grid-template-columns: 1fr; gap: 40px; }
           .hero-visual { margin-top: 28px; }
-          /* keep floating chips fully INSIDE the card on small screens */
           .chip-payroll { right: 12px; top: 12px; }
           .chip-leave { left: 12px; bottom: 12px; }
           .dash-wrap.framed { padding: 28px 22px 38px; }
@@ -729,7 +719,6 @@ export default function Page() {
           .hero-sub { font-size: 16.5px; }
           .hero-ctas, .cta-banner-actions { flex-direction: column; align-items: stretch; }
 
-          /* dashboard mock: scale internals so min-content fits ~320px */
           .dash-wrap.framed { padding: 16px 12px 24px; }
           .dash-rail { width: 44px; }
           .dash-main { padding: 14px 13px 16px; }
