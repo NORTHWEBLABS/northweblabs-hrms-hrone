@@ -29,6 +29,9 @@ const NAV_GROUPS: NavGroup[] = [
     { label: "Employees", icon: Users, path: "/employees", roles: ["super_admin","owner","admin","hr"] },
     { label: "Org structure", icon: Network, path: "/org-structure", roles: ["owner","admin","hr"] },
   ]},
+  { label: "Work", defaultOpen: true, items: [
+    { label: "Tasks", icon: ClipboardCheck, path: "/tasks" },
+  ]},
   { label: "HR", roles: ["super_admin","owner","admin","hr","manager"], items: [
     { label: "Attendance", icon: CalendarCheck, path: "/attendance" },
     { label: "Work schedule", icon: Calendar, path: "/work-schedule", roles: ["super_admin","owner","admin","hr"] },
