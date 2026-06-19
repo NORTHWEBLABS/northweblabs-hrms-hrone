@@ -561,10 +561,14 @@ export default function MePage() {
                     { label: "Apply leave", icon: <CalendarDays className="w-4 h-4" />, color: "bg-blue-50 text-blue-600 border-blue-100", action: () => setShowLeaveModal(true) },
                     { label: "View payslips", icon: <Wallet className="w-4 h-4" />, color: "bg-violet-50 text-violet-600 border-violet-100", action: () => {} },
                     { label: "My approvals", icon: <FileText className="w-4 h-4" />, color: "bg-amber-50 text-amber-600 border-amber-100", action: () => window.location.href = "/approvals" },
-                    { label: "Raise a ticket", icon: <MessageSquare className="w-4 h-4" />, color: "bg-rose-50 text-rose-600 border-rose-100", action: () => window.location.href = "/approvals" },
-                    { label: "Claim reimbursement", icon: <Receipt className="w-4 h-4" />, color: "bg-emerald-50 text-emerald-600 border-emerald-100", action: () => setShowExpenseModal(true) },
+                    { label: "Raise a ticket", icon: <MessageSquare className="w-4 h-4" />, color: "bg-gray-50 text-gray-400 border-gray-100", disabled: true },
+                    { label: "Claim reimbursement", icon: <Receipt className="w-4 h-4" />, color: "bg-emerald-50 text-emerald-600 border-emerald-100", action: () => setShowExpenseModal(true), full: true },
                   ].map(a => (
-                    <button key={a.label} onClick={a.action} className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm font-medium hover:shadow-sm transition ${a.color}`}>{a.icon}{a.label}</button>
+                    <button key={a.label} onClick={a.disabled ? undefined : a.action} disabled={a.disabled}
+                      className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm font-medium transition ${a.full ? "col-span-2 justify-center" : ""} ${a.disabled ? "cursor-not-allowed opacity-80" : "hover:shadow-sm"} ${a.color}`}>
+                      {a.icon}{a.label}
+                      {a.disabled && <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full">Soon</span>}
+                    </button>
                   ))}
                 </div>
                 <div className="mt-5 pt-4 border-t border-gray-100">
