@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     description: "WhatsApp-first HR & Payroll OS for Indian small businesses",
     url: "https://northweblabs.com",
     siteName: "NorthWebLabs",
-    images: [{ url: "/logo-nwl.png", width: 512, height: 512, alt: "NorthWebLabs" }],
+    images: [{ url: "public/logo-nwl.png", width: 512, height: 512, alt: "NorthWebLabs" }],
     type: "website",
   },
 };

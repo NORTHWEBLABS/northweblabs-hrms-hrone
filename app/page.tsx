@@ -29,64 +29,13 @@ const Logo = ({ light = false }: { light?: boolean }) => (
   </Link>
 );
 
-/* ---------- Dashboard mockup (reused in hero + speed section) ---------- */
-const DashboardMock = ({ framed = false }: { framed?: boolean }) => (
-  <div className={`dash-wrap ${framed ? 'framed' : ''}`}>
-    <div className="dash">
-      <div className="dash-titlebar">
-        <span className="dash-logo">N</span>
-        <span className="dash-title">Dashboard</span>
-        <span className="dash-dots">
-          <i className="dot red" /><i className="dot yellow" /><i className="dot green" />
-        </span>
-      </div>
-      <div className="dash-body">
-        <div className="dash-rail">
-          <span className="rail-item active" />
-          <span className="rail-item" />
-          <span className="rail-item" />
-          <span className="rail-item" />
-        </div>
-        <div className="dash-main">
-          <div className="dash-greeting">Good morning, Ananya</div>
-          <div className="dash-pay-card">
-            <div>
-              <div className="pay-label">Net pay · June</div>
-              <div className="pay-amount">₹1,84,200</div>
-            </div>
-            <div className="mini-bars" aria-hidden="true">
-              {[8, 12, 16, 13, 18, 22, 19, 30].map((h, i) => (
-                <span key={i} style={{ height: h }} className={i === 7 ? 'bar tall' : 'bar'} />
-              ))}
-            </div>
-          </div>
-          <div className="dash-row">
-            <div className="dash-small-card">
-              <div className="small-num">14 <span>days</span></div>
-              <div className="pips" aria-hidden="true">
-                {[1, 1, 1, 1, 0, 0, 0].map((on, i) => (
-                  <span key={i} className={on ? 'pip on' : 'pip'} />
-                ))}
-              </div>
-            </div>
-            <div className="dash-small-card">
-              <div className="small-label">Today</div>
-              <div className="checked-in"><i className="status-dot" /> Checked in</div>
-              <div className="time-range">09:02 → 18:30</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      {/* Floating chips */}
-      <div className="chip chip-payroll"><i className="chip-dot" /> Payslip · ready</div>
-      <div className="chip chip-leave">
-        <span className="chip-check"><CheckIcon /></span>
-        <span>
-          <strong>Leave approved</strong>
-          <em>2 days · Aug</em>
-        </span>
-      </div>
-    </div>
+/* ---------- App screenshot (responsive: separate mobile image) ---------- */
+const AppShot = ({ framed = false, desktop, mobile, alt }: { framed?: boolean; desktop: string; mobile: string; alt: string }) => (
+  <div className={`shot-wrap ${framed ? 'framed' : ''}`}>
+    <picture>
+      <source media="(max-width: 640px)" srcSet={mobile} />
+      <img src={desktop} alt={alt} className="shot-img" />
+    </picture>
   </div>
 );
 
@@ -142,7 +91,7 @@ export default function Page() {
             </div>
           </div>
           <div className="hero-visual">
-            <DashboardMock />
+            <AppShot desktop="/hero-shot.png" mobile="/hero-shot-mobile.png" alt="NorthWeb Labs employee dashboard" />
           </div>
         </div>
 
@@ -252,7 +201,7 @@ export default function Page() {
             <Link href="/demo" className="btn btn-dark btn-lg">See it in action <ArrowRight /></Link>
           </div>
           <div className="speed-visual">
-            <DashboardMock framed />
+            <AppShot framed desktop="/feature-shot.png" mobile="/feature-shot-mobile.png" alt="NorthWeb Labs in action" />
           </div>
         </div>
       </section>
@@ -271,55 +220,6 @@ export default function Page() {
               <div className="stat-label">{s.label}</div>
             </div>
           ))}
-        </div>
-      </section>
-
-      {/* ============ BUILT FOR INDIA ============ */}
-      <section className="india">
-        <div className="container india-inner">
-          <h2>Built for how India works.</h2>
-          <p className="india-sub">
-            Not a US HR tool bolted onto an India compliance layer.<br />
-            Built from the ground up for Indian MSMEs.
-          </p>
-          <div className="india-grid">
-            <div className="india-card blue">
-              <span className="india-pill blue">Attendance</span>
-              <h3>Check-in that knows where you are.</h3>
-              <p>
-                Employees clock in and out from their dashboard &mdash;
-                location-tagged and time-stamped. Mark attendance
-                in bulk or import a CSV.
-              </p>
-              <div className="india-divider" />
-              <div className="india-stat blue">Geo</div>
-              <div className="india-stat-label">location-tagged check-in</div>
-            </div>
-            <div className="india-card purple">
-              <span className="india-pill purple">Leave &amp; claims</span>
-              <h3>Approvals that route themselves.</h3>
-              <p>
-                Staff apply for leave and file reimbursements in a
-                tap. Each request goes to the right approver with
-                email and in-app alerts &mdash; nothing gets lost.
-              </p>
-              <div className="india-divider" />
-              <div className="india-stat purple">Auto</div>
-              <div className="india-stat-label">routing &amp; notifications</div>
-            </div>
-            <div className="india-card gray">
-              <span className="india-pill gray">Schedules &amp; access</span>
-              <h3>Set the work week. Control who sees what.</h3>
-              <p>
-                Define weekly-offs as an org standard with
-                per-employee overrides, and grant or restrict each
-                module by role &mdash; owner down to employee.
-              </p>
-              <div className="india-divider" />
-              <div className="india-stat dark">6</div>
-              <div className="india-stat-label">roles with module-level access</div>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -516,6 +416,22 @@ export default function Page() {
         }
         .chip-leave strong { display: block; font-size: 14px; }
         .chip-leave em { display: block; font-style: normal; font-size: 12.5px; color: #67718a; }
+
+        /* ---------- App screenshot (responsive image) ---------- */
+        .shot-wrap { position: relative; }
+        .shot-wrap.framed {
+          background: linear-gradient(135deg, #dde7fb 0%, #eef2fc 60%, #f6f8fe 100%);
+          border-radius: 28px; padding: 28px;
+        }
+        .shot-img {
+          display: block; width: 100%; height: auto; border-radius: 16px;
+          border: 1px solid #e7ecf3; box-shadow: 0 24px 60px rgba(15, 30, 60, 0.12);
+        }
+        @media (max-width: 640px) {
+          .shot-wrap.framed { padding: 12px; border-radius: 18px; }
+          .shot-img { border-radius: 12px; box-shadow: 0 12px 30px rgba(15, 30, 60, 0.12); }
+          .hero-visual { margin-top: 8px; }
+        }
 
         /* ---------- Module strip ---------- */
         .logo-strip { margin-top: 96px; text-align: center; }
