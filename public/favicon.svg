@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="NorthWeb Labs">
   <style>
     .tile  { fill: #0D1424; }
-    .bar   { fill: #E8ECF3; }
+    .bar   { fill: #FFFFFF; }
     .slash { fill: #2F6BFF; }
     @media (prefers-color-scheme: dark) {
       .tile { fill: #F4F7FB; }
       .bar  { fill: #0D1424; }
     }
   </style>
-  <rect class="tile" x="0" y="0" width="512" height="512" rx="118" ry="118"/>
-  <rect class="bar" x="154" y="143" width="44" height="226"/>
-  <rect class="bar" x="314" y="143" width="44" height="226"/>
-  <polygon class="slash" points="146,143 202,143 366,369 310,369"/>
+  <rect class="tile" x="0" y="0" width="512" height="512" rx="110" ry="110"/>
+  <rect class="bar" x="113" y="102" width="60" height="308"/>
+  <rect class="bar" x="339" y="102" width="60" height="308"/>
+  <polygon class="slash" points="108,102 178,102 404,410 334,410"/>
 </svg>
