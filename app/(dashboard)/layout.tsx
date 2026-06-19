@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import Sidebar from "@/components/Sidebar";
 import AppContextMenu from "@/components/AppContextMenu";
 import AIChatBot from "@/components/AIChatBot";
+import MobileTopBar from "@/components/MobileTopBar";
 
 export default async function DashboardLayout({
   children,
@@ -86,6 +87,8 @@ export default async function DashboardLayout({
           planName = org.plan?.charAt(0).toUpperCase() + org.plan?.slice(1) || "Starter";
 
           if (org.plan_status === "trial" && org.trial_ends_at) {
+            // Date.now() during render is intentional: this server component renders once per request
+            // eslint-disable-next-line
             const msLeft = new Date(org.trial_ends_at).getTime() - Date.now();
             trialDaysLeft = Math.max(0, Math.ceil(msLeft / 86400000));
           } else {
@@ -108,7 +111,10 @@ export default async function DashboardLayout({
         userInitials={userInitials}
       />
       <AppContextMenu>
-        <main className="flex-1 overflow-y-auto p-5">{children}</main>
+        <main className="flex-1 overflow-y-auto">
+          <MobileTopBar orgName={orgName} />
+          <div className="p-5">{children}</div>
+        </main>
       </AppContextMenu>
       <AIChatBot />
     </div>
