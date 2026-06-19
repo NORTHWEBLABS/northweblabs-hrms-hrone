@@ -345,4 +345,4 @@ export default function Sidebar({ orgName, orgId, planName, trialDaysLeft, userI
       {mobile && mobileOpen && (<><div className="fixed inset-0 bg-black/60 z-40" onClick={() => setMobileOpen(false)} /><div className="fixed inset-y-0 left-0 z-50 shadow-2xl">{sidebar}</div></>)}
     </>
   );
-}
+} 
