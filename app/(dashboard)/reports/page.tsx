@@ -60,6 +60,8 @@ function regCols(reg: any) {
     return {
       sales: reg.total_sales || 0, orders: reg.total_orders || 0,
       online: reg.online_amount || 0, offline: (reg.walkin_amount || 0) + (reg.whatsapp_amount || 0),
+      walkinSales: reg.walkin_amount || 0, walkinOrders: reg.walkin_orders || 0,
+      waSales: reg.whatsapp_amount || 0, waOrders: reg.whatsapp_orders || 0,
       cash: reg.pay_cash || 0, upi: reg.pay_upi || 0, card: reg.pay_card || 0, gateway: reg.pay_gateway || 0,
     };
   }
@@ -69,9 +71,12 @@ function regCols(reg: any) {
   const upi = (po["UPI"]?.amount || 0) + onlineMatch(/upi/);
   const card = (po["Card"]?.amount || 0) + onlineMatch(/card/);
   const allPay = [...Object.values(pon), ...Object.values(po)].reduce((s: number, v: any) => s + (v.amount || 0), 0);
+  const sub = b.offline_sub || {};
   return {
     sales: (b.online?.sales || 0) + (b.offline?.sales || 0), orders: (b.online?.orders || 0) + (b.offline?.orders || 0),
     online: b.online?.sales || 0, offline: b.offline?.sales || 0,
+    walkinSales: (sub.walkin?.sales || 0) + (sub.untagged_channel?.sales || 0), walkinOrders: (sub.walkin?.orders || 0) + (sub.untagged_channel?.orders || 0),
+    waSales: sub.whatsapp?.sales || 0, waOrders: sub.whatsapp?.orders || 0,
     cash, upi, card, gateway: Math.max(0, allPay - cash - upi - card),
   };
 }
@@ -307,22 +312,33 @@ export default function ReportsPage() {
   // ── Store sales (Shopify cash-register) aggregated over the range ──
   const store = useMemo(() => {
     let sales = 0, orders = 0, online = 0, offline = 0, cash = 0, upi = 0, card = 0, gateway = 0;
+    let walkinSales = 0, walkinOrders = 0, waSales = 0, waOrders = 0;
     const daily: { date: string; sales: number }[] = [];
+    let activeDays = 0;
     registers.forEach((reg: any) => {
       const c = regCols(reg);
       sales += c.sales; orders += c.orders; online += c.online; offline += c.offline;
       cash += c.cash; upi += c.upi; card += c.card; gateway += c.gateway;
-      if (c.sales > 0) daily.push({ date: new Date(reg.date + "T00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }), sales: Math.round(c.sales) });
+      walkinSales += c.walkinSales; walkinOrders += c.walkinOrders; waSales += c.waSales; waOrders += c.waOrders;
+      if (c.sales > 0) { daily.push({ date: new Date(reg.date + "T00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }), sales: Math.round(c.sales) }); activeDays++; }
     });
+    const d = Math.max(1, activeDays);
     const payMethods = [
       { name: "Cash", value: Math.round(cash) }, { name: "UPI", value: Math.round(upi) },
       { name: "Card", value: Math.round(card) }, { name: "Gateway", value: Math.round(gateway) },
     ].filter(p => p.value > 0).map((p, i) => ({ ...p, fill: COLORS[i % COLORS.length] }));
     const channel = [
       { name: "Online", value: Math.round(online), fill: "#6366F1" },
-      { name: "Offline", value: Math.round(offline), fill: "#F59E0B" },
+      { name: "Walk-in", value: Math.round(walkinSales), fill: "#F59E0B" },
+      { name: "WhatsApp", value: Math.round(waSales), fill: "#22C55E" },
     ].filter(c => c.value > 0);
-    return { sales, orders, online, offline, cash, upi, card, gateway, daily, payMethods, channel, days: registers.length };
+    return {
+      sales, orders, online, offline, cash, upi, card, gateway, daily, payMethods, channel,
+      days: registers.length, activeDays,
+      walkinSales, walkinOrders, waSales, waOrders,
+      avgWalkinValue: walkinSales / d, avgWalkinOrders: walkinOrders / d,
+      avgWaValue: waSales / d, avgWaOrders: waOrders / d,
+    };
   }, [registers]);
 
   const MODULES: { id: Module; label: string; icon: React.ReactNode }[] = [
@@ -430,6 +446,36 @@ export default function ReportsPage() {
             {store.sales === 0 ? (
               <ChartCard title="Store sales"><div className="text-center py-10"><ShoppingCart className="w-9 h-9 text-gray-200 mx-auto mb-2" /><p className="text-sm text-gray-400">No Shopify sales pulled in this range</p></div></ChartCard>
             ) : (<>
+              <ChartCard title="Offline split — walk-in vs WhatsApp">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-amber-50 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Store walk-in</p>
+                      <span className="text-[10px] text-amber-500">{store.offline > 0 ? Math.round((store.walkinSales / store.offline) * 100) : 0}% of offline</span>
+                    </div>
+                    <p className="text-2xl font-bold text-amber-800">{fmtINR(store.walkinSales)}</p>
+                    <p className="text-xs text-amber-500 mt-0.5">{store.walkinOrders} orders over {store.activeDays} day{store.activeDays !== 1 ? "s" : ""}</p>
+                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-amber-200/60">
+                      <div><p className="text-[10px] text-amber-500 uppercase">Avg / day</p><p className="text-sm font-bold text-amber-800">{fmtINR(store.avgWalkinValue)}</p></div>
+                      <div><p className="text-[10px] text-amber-500 uppercase">Orders / day</p><p className="text-sm font-bold text-amber-800">{store.avgWalkinOrders.toFixed(1)}</p></div>
+                    </div>
+                  </div>
+                  <div className="bg-emerald-50 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">WhatsApp</p>
+                      <span className="text-[10px] text-emerald-500">{store.offline > 0 ? Math.round((store.waSales / store.offline) * 100) : 0}% of offline</span>
+                    </div>
+                    <p className="text-2xl font-bold text-emerald-800">{fmtINR(store.waSales)}</p>
+                    <p className="text-xs text-emerald-500 mt-0.5">{store.waOrders} orders over {store.activeDays} day{store.activeDays !== 1 ? "s" : ""}</p>
+                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-emerald-200/60">
+                      <div><p className="text-[10px] text-emerald-500 uppercase">Avg / day</p><p className="text-sm font-bold text-emerald-800">{fmtINR(store.avgWaValue)}</p></div>
+                      <div><p className="text-[10px] text-emerald-500 uppercase">Orders / day</p><p className="text-sm font-bold text-emerald-800">{store.avgWaOrders.toFixed(1)}</p></div>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-3">Averages are per active day ({store.activeDays} day{store.activeDays !== 1 ? "s" : ""} with sales in this range).</p>
+              </ChartCard>
+
               <ChartCard title="Daily sales">
                 <ResponsiveContainer width="100%" height={220}><BarChart data={store.daily}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="date" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} /><Tooltip content={<CustomTooltip />} /><Bar dataKey="sales" fill="#6366F1" radius={[4,4,0,0]} name="Sales" /></BarChart></ResponsiveContainer>
               </ChartCard>
@@ -438,7 +484,7 @@ export default function ReportsPage() {
                 <ChartCard title="Payment method">
                   <ResponsiveContainer width="100%" height={240}><RePieChart><Pie data={store.payMethods} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={3} label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: 11 }}>{store.payMethods.map((e, i) => <Cell key={i} fill={e.fill} />)}</Pie><Tooltip content={<CustomTooltip />} /></RePieChart></ResponsiveContainer>
                 </ChartCard>
-                <ChartCard title="Online vs offline">
+                <ChartCard title="Sales by channel">
                   <ResponsiveContainer width="100%" height={240}><RePieChart><Pie data={store.channel} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={3} label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: 11 }}>{store.channel.map((e, i) => <Cell key={i} fill={e.fill} />)}</Pie><Tooltip content={<CustomTooltip />} /></RePieChart></ResponsiveContainer>
                 </ChartCard>
               </div>
