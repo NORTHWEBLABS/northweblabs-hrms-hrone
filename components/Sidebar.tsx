@@ -341,8 +341,31 @@ export default function Sidebar({ orgName, orgId, planName, trialDaysLeft, userI
           )}
         </div>
       )}
-      {mobile && <button onClick={() => setMobileOpen(true)} className="fixed top-4 left-4 z-30 p-2 bg-white rounded-xl shadow-lg border lg:hidden"><Menu className="w-5 h-5 text-gray-600" /></button>}
+
+      {/* Mobile top bar — full width, headings flow below it (no overlap) */}
+      {mobile && (
+        <header
+          className="fixed top-0 inset-x-0 z-30 lg:hidden border-b border-gray-200 bg-white/90 backdrop-blur-md"
+          style={{ paddingTop: "env(safe-area-inset-top)" }}
+        >
+          <div className="flex items-center gap-2.5 h-14 px-3">
+            <button
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open menu"
+              className="p-2 -ml-1 rounded-xl text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-6 h-6 bg-gradient-to-br from-indigo-500 to-violet-500 rounded-md flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">N</div>
+              <span className="font-bold text-gray-900 text-sm truncate">{liveOrgName || "NorthWebLabs"}</span>
+            </div>
+            <div className="ml-auto flex-shrink-0"><NotificationBell /></div>
+          </div>
+        </header>
+      )}
+
       {mobile && mobileOpen && (<><div className="fixed inset-0 bg-black/60 z-40" onClick={() => setMobileOpen(false)} /><div className="fixed inset-y-0 left-0 z-50 shadow-2xl">{sidebar}</div></>)}
     </>
   );
-} 
+}

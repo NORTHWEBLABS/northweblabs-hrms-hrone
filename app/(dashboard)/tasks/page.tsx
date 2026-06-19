@@ -12,7 +12,7 @@ import {
   Plus, X, Loader2, CheckCircle2, AlertCircle, Flag, Calendar, Clock,
   Search, LayoutGrid, Table as TableIcon, List as ListIcon, RotateCcw,
   Play, Send, Check, Trash2, ChevronRight, User as UserIcon, Users, Palette,
-  PanelLeft, BarChart3, Eye, EyeOff, AlertTriangle,
+  PanelLeft, BarChart3, Eye, EyeOff, AlertTriangle, Paperclip,
 } from "lucide-react";
 
 /* ─────────── types ─────────── */
@@ -121,6 +121,7 @@ export default function TasksPage() {
   const [orgId, setOrgId] = useState("");
   const [role, setRole] = useState("employee");
   const [self, setSelf] = useState<{ employeeId: string; name: string; managerId: string | null } | null>(null);
+  const [viewerName, setViewerName] = useState("You");
   const [graph, setGraph] = useState<EmpNode[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
@@ -148,11 +149,16 @@ export default function TasksPage() {
 
   const flash = (msg: string, type: "success" | "error" = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 2600); };
 
-  // persist theme whenever it changes
+  // persist theme: local cache always; shared DB row when the viewer may edit the org theme
   useEffect(() => {
     if (!orgId) return;
     try { localStorage.setItem("taskBoardTheme:" + orgId, JSON.stringify({ columnColors, boardBg, cardBorder })); } catch { /* ignore */ }
-  }, [orgId, columnColors, boardBg, cardBorder]);
+    if (loading || !ASSIGN_ANYONE.includes(role)) return;
+    sb.from("task_board_prefs").upsert(
+      { org_id: orgId, column_colors: columnColors, board_bg: boardBg, card_border: cardBorder, updated_at: new Date().toISOString() },
+      { onConflict: "org_id" }
+    ).then(() => {}, () => {});
+  }, [orgId, columnColors, boardBg, cardBorder, loading, role, sb]);
 
   const nameOf = useCallback((id: string | null | undefined) => graph.find(e => e.id === id)?.name ?? "—", [graph]);
 
@@ -175,6 +181,16 @@ export default function TasksPage() {
         }
       } catch { /* ignore */ }
 
+      // shared org theme (DB) overrides local cache when present
+      try {
+        const { data: prefs } = await sb.from("task_board_prefs").select("column_colors, board_bg, card_border").eq("org_id", oid).maybeSingle();
+        if (prefs) {
+          if (prefs.column_colors && Object.keys(prefs.column_colors).length) setColumnColors({ ...DEFAULT_COLUMN_COLORS, ...prefs.column_colors });
+          if (prefs.board_bg) setBoardBg(prefs.board_bg);
+          if (prefs.card_border) setCardBorder(prefs.card_border);
+        }
+      } catch { /* table may not exist yet */ }
+
       // role from users
       let r = "employee";
       if (email) {
@@ -187,6 +203,7 @@ export default function TasksPage() {
       setGraph(g);
       const me = email ? await resolveSelfEmployee(sb, email, oid) : null;
       setSelf(me);
+      setViewerName(me?.name || (email ? email.split("@")[0] : (r || "You")));
 
       // default scope: managers with reports — or admins with no employee row — start on Team
       const reports = me ? reportsUnder(g, me.employeeId) : new Set<string>();
@@ -202,6 +219,7 @@ export default function TasksPage() {
   /* ── derived perms ── */
   const myId = self?.employeeId ?? null;
   const isAdminLike = ADMIN_LIKE.includes(role);
+  const canEditTheme = ASSIGN_ANYONE.includes(role);
   const canAssignAnyone = ASSIGN_ANYONE.includes(role);
   const isManager = MANAGER_ROLES.includes(role);
   const myReports = useMemo(() => (myId ? reportsUnder(graph, myId) : new Set<string>()), [graph, myId]);
@@ -440,7 +458,7 @@ export default function TasksPage() {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
               className="w-44 pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
           </div>
-          <div className="relative">
+          {canEditTheme && <div className="relative">
             <button onClick={() => setPalette(palette && (palette as any).kind === "bg" ? null : { kind: "bg" })}
               title="Board background"
               className="flex items-center justify-center w-9 h-9 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 text-gray-500">
@@ -474,7 +492,7 @@ export default function TasksPage() {
                 </div>
               </div>
             )}
-          </div>
+          </div>}
           <button onClick={() => setShowCreate("todo")}
             className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
             <Plus className="w-4 h-4" />New task
@@ -571,11 +589,11 @@ export default function TasksPage() {
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: pal.bar }} />
                   <span className="text-sm font-bold text-gray-800">{lane.label}</span>
                   <span className="rounded-full px-1.5 text-[11px] font-semibold" style={{ background: pal.chipBg, color: pal.chipText }}>{items.length}</span>
-                  <button onClick={() => setPalette(palette && (palette as any).kind === "col" && (palette as any).status === lane.id ? null : { kind: "col", status: lane.id })}
+                  {canEditTheme && <button onClick={() => setPalette(palette && (palette as any).kind === "col" && (palette as any).status === lane.id ? null : { kind: "col", status: lane.id })}
                     title="Column colour" className="ml-auto rounded-md p-1 text-gray-400 hover:bg-black/5 hover:text-gray-600">
                     <Palette className="w-3.5 h-3.5" />
-                  </button>
-                  {palette && (palette as any).kind === "col" && (palette as any).status === lane.id && (
+                  </button>}
+                  {canEditTheme && palette && (palette as any).kind === "col" && (palette as any).status === lane.id && (
                     <div className="absolute right-2 top-10 z-50 w-40 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 px-1 mb-1.5">Column colour</div>
                       <div className="grid grid-cols-4 gap-1.5">
@@ -695,6 +713,8 @@ export default function TasksPage() {
           onReject={() => setRejectFor(drawerTask)}
           onEdit={(patch) => editTask(drawerTask, patch)}
           onDelete={() => deleteTask(drawerTask)}
+          onComment={(text) => logActivity(drawerTask.id, "commented", { text, author: viewerName })}
+          onAttach={(url, label) => logActivity(drawerTask.id, "attached", { url, label: label || url, author: viewerName })}
         />
       )}
 
@@ -855,11 +875,18 @@ function TaskDrawer(props: {
   isAssignee: boolean; canVerify: boolean; canEdit: boolean; assignOptions: EmpNode[];
   onClose: () => void; onStart: () => void; onSubmit: () => void; onVerify: () => void; onReject: () => void;
   onEdit: (patch: Partial<Task>) => void; onDelete: () => void;
+  onComment: (text: string) => void; onAttach: (url: string, label: string) => void;
 }) {
-  const { task: t, nameOf, activity, isAssignee, canVerify, canEdit, assignOptions, onClose, onStart, onSubmit, onVerify, onReject, onEdit, onDelete } = props;
+  const { task: t, nameOf, activity, isAssignee, canVerify, canEdit, assignOptions, onClose, onStart, onSubmit, onVerify, onReject, onEdit, onDelete, onComment, onAttach } = props;
   const badge = tatBadge(t);
   const checklist = t.checklist ?? [];
   const checked = checklist.filter(c => c.done).length;
+  const [commentText, setCommentText] = useState("");
+  const [showLink, setShowLink] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkLabel, setLinkLabel] = useState("");
+  const sendComment = () => { const v = commentText.trim(); if (!v) return; onComment(v); setCommentText(""); };
+  const sendLink = () => { const u = linkUrl.trim(); if (!u) return; onAttach(u, linkLabel.trim()); setLinkUrl(""); setLinkLabel(""); setShowLink(false); };
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(t.title);
   const [desc, setDesc] = useState(t.description || "");
@@ -934,21 +961,68 @@ function TaskDrawer(props: {
             </div>
           )}
 
-          {/* activity */}
+          {/* activity + comments */}
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Activity</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Activity &amp; comments</div>
+
+            {/* composer */}
+            <div className="mb-3">
+              <div className="flex gap-1.5">
+                <input value={commentText} onChange={e => setCommentText(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") sendComment(); }}
+                  placeholder="Write a comment…"
+                  className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-200" />
+                <button onClick={sendComment} className="rounded-lg bg-indigo-600 px-2.5 text-white hover:bg-indigo-700"><Send className="w-3.5 h-3.5" /></button>
+              </div>
+              {showLink ? (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="https://…" className="flex-1 min-w-[140px] rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-200" />
+                  <input value={linkLabel} onChange={e => setLinkLabel(e.target.value)} placeholder="Label (optional)" className="w-28 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-200" />
+                  <button onClick={sendLink} className="rounded-lg bg-gray-900 px-3 text-xs font-semibold text-white">Attach</button>
+                </div>
+              ) : (
+                <button onClick={() => setShowLink(true)} className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:underline"><Paperclip className="w-3 h-3" />Attach a link</button>
+              )}
+            </div>
+
             <div className="space-y-2">
               {activity.length === 0 && <p className="text-xs text-gray-400">No activity yet</p>}
-              {activity.map(a => (
-                <div key={a.id} className="flex gap-2 text-xs">
-                  <Clock className="w-3 h-3 text-gray-300 mt-0.5 shrink-0" />
-                  <div>
-                    <span className="font-semibold text-gray-700 capitalize">{a.action.replace(/_/g, " ")}</span>
-                    {a.detail?.reason && <span className="text-gray-500"> — {a.detail.reason}</span>}
-                    <span className="text-gray-400"> · {fmtDateTime(a.created_at)}</span>
+              {activity.map(a => {
+                const author = a.detail?.author || nameOf(a.actor_id) || "Someone";
+                if (a.action === "commented") {
+                  return (
+                    <div key={a.id} className="rounded-lg bg-gray-50 p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-gray-700">{author}</span>
+                        <span className="text-[10px] text-gray-400">{fmtDateTime(a.created_at)}</span>
+                      </div>
+                      <div className="mt-0.5 whitespace-pre-wrap text-xs text-gray-700">{a.detail?.text}</div>
+                    </div>
+                  );
+                }
+                if (a.action === "attached") {
+                  return (
+                    <div key={a.id} className="flex gap-2 text-xs">
+                      <Paperclip className="w-3 h-3 text-gray-400 mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <a href={a.detail?.url} target="_blank" rel="noopener noreferrer" className="font-medium text-indigo-600 hover:underline break-all">{a.detail?.label || a.detail?.url}</a>
+                        <span className="text-gray-400"> · {author} · {fmtDateTime(a.created_at)}</span>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={a.id} className="flex gap-2 text-xs">
+                    <Clock className="w-3 h-3 text-gray-300 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="font-semibold text-gray-700">{author}</span>
+                      <span className="text-gray-500"> {a.action.replace(/_/g, " ")}</span>
+                      {a.detail?.reason && <span className="text-gray-500"> — {a.detail.reason}</span>}
+                      <span className="text-gray-400"> · {fmtDateTime(a.created_at)}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
