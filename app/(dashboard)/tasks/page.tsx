@@ -3,7 +3,7 @@
 // Task Workspace — lane board + My/Team toggle + table + list, with TAT clock,
 // submit → verify/reject flow, and reporting-hierarchy scoping.
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import {
   resolveSelfEmployee, loadOrgGraph, reportsUnder, type EmpNode,
@@ -136,6 +136,14 @@ export default function TasksPage() {
   const [boardBg, setBoardBg] = useState<string>("#f7f8fa");
   const [cardBorder, setCardBorder] = useState<string>("match"); // "match" | PastelKey | "subtle"
   const [palette, setPalette] = useState<null | { kind: "bg" } | { kind: "col"; status: Status }>(null);
+  const paletteRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (palette && (palette as any).kind === "bg" && paletteRef.current && !paletteRef.current.contains(e.target as Node)) setPalette(null);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [palette]);
 
   // left analytics/controls panel + view filters
   const [showPanel, setShowPanel] = useState(false);
@@ -438,99 +446,21 @@ export default function TasksPage() {
   return (
     <div className="-m-5 min-h-screen" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.07) 1.2px, transparent 1.3px)", backgroundSize: "18px 18px" }}>
     <div className="flex min-h-screen">
-      {/* left-extreme white vertical strip — New task + insights toggle */}
-      <div className="sticky top-0 self-start min-h-screen z-20 flex flex-col items-center gap-2 bg-white border-r border-gray-200 px-2 py-3 shadow-sm shrink-0">
-        <button onClick={() => setShowCreate("todo")} title="New task" className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"><Plus className="w-5 h-5" /></button>
-        <button onClick={() => setShowPanel(s => !s)} title="Insights & filters" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}><PanelLeft className="w-5 h-5" /></button>
-      </div>
-      <div className="flex-1 min-w-0 p-4 sm:p-5">
-    <div className="max-w-7xl mx-auto">
-      {/* header — white toolbar strip */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm px-4 py-3 mb-4 flex flex-wrap items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Tasks</h1>
-          <p className="text-sm text-gray-400">Assign, track TAT and verify work across your team</p>
+      {/* left-extreme white vertical strip — actions + collapsible analytics */}
+      <div ref={paletteRef} className="sticky top-0 self-start min-h-screen z-20 relative flex bg-white border-r border-gray-200 shadow-sm shrink-0">
+        <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 p-2">
+          <button onClick={() => setShowCreate("todo")} title="New task" className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"><Plus className="w-5 h-5" /></button>
+          <div className="my-0.5 h-px w-7 bg-gray-100" />
+          <button onClick={() => setShowPanel(s => !s)} title="Analytics & filters" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600"}`}><PanelLeft className="w-5 h-5" /></button>
+          <button onClick={() => setHideVerified(v => !v)} title={hideVerified ? "Show verified" : "Hide verified"} className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${hideVerified ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600"}`}>{hideVerified ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
+          {canEditTheme && <button onClick={() => setPalette(palette && (palette as any).kind === "bg" ? null : { kind: "bg" })} title="Board theme" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${palette && (palette as any).kind === "bg" ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600"}`}><Palette className="w-5 h-5" /></button>}
         </div>
-
-
-        {/* scope toggle */}
-        {canSeeTeam && (
-          <div className="ml-2 flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
-            {([["mine", "My tasks", UserIcon], ["team", "Team", Users]] as const).map(([id, label, Icon]) => (
-              <button key={id} onClick={() => setScope(id)}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${scope === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
-                <Icon className="w-3.5 h-3.5" />{label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* view tabs */}
-        <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
-          {([["board", "Board", LayoutGrid], ["table", "Table", TableIcon]] as const).map(([id, label, Icon]) => (
-            <button key={id} onClick={() => setView(id)}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${view === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
-              <Icon className="w-3.5 h-3.5" />{label}
-            </button>
-          ))}
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          <div className="relative">
-            <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-              className="w-36 md:w-44 pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
-          </div>
-          {canEditTheme && <div className="relative">
-            <button onClick={() => setPalette(palette && (palette as any).kind === "bg" ? null : { kind: "bg" })}
-              title="Board background"
-              className="flex items-center justify-center w-9 h-9 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 text-gray-500">
-              <Palette className="w-4 h-4" />
-            </button>
-            {palette && (palette as any).kind === "bg" && (
-              <div className="absolute right-0 z-50 mt-2 w-52 rounded-xl border border-gray-200 bg-white p-3 shadow-lg space-y-3">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Background</div>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {BOARD_BGS.map(b => (
-                      <button key={b.key} title={b.label} onClick={() => setBoardBg(b.value)}
-                        className={`h-8 rounded-lg border-2 ${boardBg === b.value ? "border-indigo-500" : "border-gray-200"}`}
-                        style={{ background: b.value }} />
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Card border</div>
-                  <div className="flex gap-1.5 mb-1.5">
-                    <button onClick={() => setCardBorder("match")} className={`flex-1 rounded-lg border py-1 text-[10px] font-semibold ${cardBorder === "match" ? "border-indigo-500 text-indigo-600 bg-indigo-50" : "border-gray-200 text-gray-500"}`}>Match column</button>
-                    <button onClick={() => setCardBorder("subtle")} className={`flex-1 rounded-lg border py-1 text-[10px] font-semibold ${cardBorder === "subtle" ? "border-indigo-500 text-indigo-600 bg-indigo-50" : "border-gray-200 text-gray-500"}`}>Subtle</button>
-                  </div>
-                  <div className="grid grid-cols-8 gap-1">
-                    {PASTEL_KEYS.map(k => (
-                      <button key={k} onClick={() => setCardBorder(k)}
-                        className={`h-5 w-5 rounded-full border-2 ${cardBorder === k ? "border-gray-900" : "border-white"}`}
-                        style={{ background: COLUMN_PASTELS[k].bar }} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>}
-        </div>
-      </div>
-
-      {/* views */}
-      <div className="flex gap-4 relative">
-        {showPanel && <div onClick={() => setShowPanel(false)} className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" />}
         {showPanel && (
-          <aside className="fixed lg:static inset-y-0 left-0 z-50 lg:z-auto w-72 lg:w-60 shrink-0 flex flex-col gap-3 overflow-y-auto bg-gray-50 lg:bg-transparent p-3 lg:p-0 shadow-2xl lg:shadow-none">
-            <div className="flex items-center justify-between lg:hidden">
-              <span className="text-sm font-bold text-gray-700">Insights & filters</span>
-              <button onClick={() => setShowPanel(false)} className="p-1.5 rounded-lg hover:bg-gray-200"><X className="w-4 h-4 text-gray-500" /></button>
+          <div className="w-60 max-w-[72vw] shrink-0 overflow-y-auto border-l border-gray-100 bg-gray-50/40 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-gray-700">Analytics</span>
+              <button onClick={() => setShowPanel(false)} className="rounded-lg p-1 hover:bg-gray-200"><X className="w-4 h-4 text-gray-400" /></button>
             </div>
-            <button onClick={() => setShowCreate("todo")} className="flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 shadow-sm">
-              <Plus className="w-4 h-4" />New task
-            </button>
             {/* insights */}
             <div className="rounded-2xl border border-gray-100 bg-white p-3.5 shadow-sm">
               <div className="flex items-center gap-1.5 mb-3">
@@ -592,9 +522,81 @@ export default function TasksPage() {
                 </div>
               </div>
             )}
-          </aside>
+          </div>
+        )}
+        {canEditTheme && palette && (palette as any).kind === "bg" && (
+          <div className="absolute left-16 top-2 z-50 w-56 rounded-xl border border-gray-200 bg-white p-3 shadow-xl space-y-3">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Background</div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {BOARD_BGS.map(b => (
+                      <button key={b.key} title={b.label} onClick={() => setBoardBg(b.value)}
+                        className={`h-8 rounded-lg border-2 ${boardBg === b.value ? "border-indigo-500" : "border-gray-200"}`}
+                        style={{ background: b.value }} />
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Card border</div>
+                  <div className="flex gap-1.5 mb-1.5">
+                    <button onClick={() => setCardBorder("match")} className={`flex-1 rounded-lg border py-1 text-[10px] font-semibold ${cardBorder === "match" ? "border-indigo-500 text-indigo-600 bg-indigo-50" : "border-gray-200 text-gray-500"}`}>Match column</button>
+                    <button onClick={() => setCardBorder("subtle")} className={`flex-1 rounded-lg border py-1 text-[10px] font-semibold ${cardBorder === "subtle" ? "border-indigo-500 text-indigo-600 bg-indigo-50" : "border-gray-200 text-gray-500"}`}>Subtle</button>
+                  </div>
+                  <div className="grid grid-cols-8 gap-1">
+                    {PASTEL_KEYS.map(k => (
+                      <button key={k} onClick={() => setCardBorder(k)}
+                        className={`h-5 w-5 rounded-full border-2 ${cardBorder === k ? "border-gray-900" : "border-white"}`}
+                        style={{ background: COLUMN_PASTELS[k].bar }} />
+                    ))}
+                  </div>
+                </div>
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0 p-4 sm:p-5">
+    <div className="max-w-7xl mx-auto">
+      {/* header — white toolbar strip */}
+      <div className="bg-white/95 backdrop-blur rounded-2xl border border-gray-200/80 shadow-sm px-3 py-2.5 mb-4 flex flex-wrap items-center gap-2.5">
+        <div>
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900">Tasks</h1>
+          <p className="hidden sm:block text-sm text-gray-400">Assign, track TAT and verify work across your team</p>
+        </div>
+
+
+        {/* scope toggle */}
+        {canSeeTeam && (
+          <div className="ml-2 flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
+            {([["mine", "My tasks", UserIcon], ["team", "Team", Users]] as const).map(([id, label, Icon]) => (
+              <button key={id} onClick={() => setScope(id)}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${scope === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+                <Icon className="w-3.5 h-3.5" />{label}
+              </button>
+            ))}
+          </div>
         )}
 
+        {/* view tabs */}
+        <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
+          {([["board", "Board", LayoutGrid], ["table", "Table", TableIcon]] as const).map(([id, label, Icon]) => (
+            <button key={id} onClick={() => setView(id)}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${view === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+              <Icon className="w-3.5 h-3.5" />{label}
+            </button>
+          ))}
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          <div className="relative">
+            <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
+              className="w-36 md:w-44 pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+          </div>
+
+        </div>
+      </div>
+
+      {/* views */}
+      <div className="flex gap-4 relative">
         <div className="flex-1 min-w-0">
       {view === "board" && (
         <div className="flex gap-4 overflow-x-auto pb-3 p-1 transition-colors">
