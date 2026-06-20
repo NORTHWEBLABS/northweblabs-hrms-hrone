@@ -436,10 +436,17 @@ export default function TasksPage() {
   );
 
   return (
-    <div className="-m-5 p-5 min-h-[70vh]" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.16) 1.5px, transparent 1.6px)", backgroundSize: "16px 16px" }}>
+    <div className="-m-5 min-h-screen" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.07) 1.2px, transparent 1.3px)", backgroundSize: "18px 18px" }}>
+    <div className="flex min-h-screen">
+      {/* left-extreme white vertical strip — New task + insights toggle */}
+      <div className="sticky top-0 self-start min-h-screen z-20 flex flex-col items-center gap-2 bg-white border-r border-gray-200 px-2 py-3 shadow-sm shrink-0">
+        <button onClick={() => setShowCreate("todo")} title="New task" className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"><Plus className="w-5 h-5" /></button>
+        <button onClick={() => setShowPanel(s => !s)} title="Insights & filters" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}><PanelLeft className="w-5 h-5" /></button>
+      </div>
+      <div className="flex-1 min-w-0 p-4 sm:p-5">
     <div className="max-w-7xl mx-auto">
-      {/* header */}
-      <div className="flex flex-wrap items-center gap-3 mb-5">
+      {/* header — white toolbar strip */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm px-4 py-3 mb-4 flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Tasks</h1>
           <p className="text-sm text-gray-400">Assign, track TAT and verify work across your team</p>
@@ -513,12 +520,7 @@ export default function TasksPage() {
       </div>
 
       {/* views */}
-      <div className="flex gap-3 relative">
-        {/* slim rail — always visible (New task + insights toggle), like the canvas toolbar */}
-        <div className="flex flex-col items-center gap-2 rounded-2xl border border-gray-100 bg-white p-2 shadow-sm h-fit sticky top-2 shrink-0">
-          <button onClick={() => setShowCreate("todo")} title="New task" className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"><Plus className="w-5 h-5" /></button>
-          <button onClick={() => setShowPanel(s => !s)} title="Insights & filters" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}><PanelLeft className="w-5 h-5" /></button>
-        </div>
+      <div className="flex gap-4 relative">
         {showPanel && <div onClick={() => setShowPanel(false)} className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" />}
         {showPanel && (
           <aside className="fixed lg:static inset-y-0 left-0 z-50 lg:z-auto w-72 lg:w-60 shrink-0 flex flex-col gap-3 overflow-y-auto bg-gray-50 lg:bg-transparent p-3 lg:p-0 shadow-2xl lg:shadow-none">
@@ -763,6 +765,8 @@ export default function TasksPage() {
         </div>
       )}
     </div>
+      </div>
+      </div>
     </div>
   );
 }
