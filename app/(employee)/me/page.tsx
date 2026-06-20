@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import { captureAndEvaluate } from "@/lib/geo";
-import { fetchWorkingDays, isoDow, isoLocal } from "@/lib/schedule";
+import { fetchWorkingDays, isoDow, isoLocal, DEFAULT_WORKING_DAYS } from "@/lib/schedule";
 import HeadSelect, { Head } from "@/components/HeadSelect";
 import {
   Clock, Calendar, Wallet, Bell, CheckCircle2, AlertCircle, Loader2,
@@ -78,6 +78,7 @@ export default function MePage() {
   const [leaveReason, setLeaveReason] = useState("");
   const [leaveSaving, setLeaveSaving] = useState(false);
   const [leaveError, setLeaveError] = useState("");
+  const [workingDays, setWorkingDays] = useState<number[]>(DEFAULT_WORKING_DAYS);
   // Claim reimbursement modal
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expCategories, setExpCategories] = useState<ExpCategory[]>([]);
@@ -94,9 +95,9 @@ export default function MePage() {
     const f = new Date(leaveFrom), t = new Date(leaveTo);
     if (t < f) return 0;
     let d = 0; const c = new Date(f);
-    while (c <= t) { if (c.getDay() > 0 && c.getDay() < 6) d++; c.setDate(c.getDate() + 1); }
+    while (c <= t) { if (workingDays.includes(isoDow(c))) d++; c.setDate(c.getDate() + 1); }
     return d;
-  }, [leaveFrom, leaveTo]);
+  }, [leaveFrom, leaveTo, workingDays]);
 
   const handleApplyLeave = async () => {
     if (!leaveFrom || !leaveTo) { setLeaveError("Select dates"); return; }
@@ -322,6 +323,7 @@ export default function MePage() {
 
       // Work schedule — working weekdays for this employee (override -> org default -> Mon–Sat fallback)
       const workingDays = await fetchWorkingDays(sb, orgId, empId);
+      setWorkingDays(workingDays);
 
       // This month attendance — count ACTUAL sign-ins (a day with a check_in)
       const lastDom = new Date(yearNum, monthNum, 0).getDate(); // real last day of month (fixes the -31 bug)
