@@ -27,7 +27,7 @@ interface Task {
   tat_hours: number | null; assigned_at: string | null; due_at: string | null;
   started_at: string | null; submitted_at: string | null; submitted_by: string | null;
   verified_at: string | null; verified_by: string | null;
-  reopen_count: number; checklist: ChecklistItem[];
+  reopen_count: number; checklist: ChecklistItem[]; task_number: number | null;
   created_at: string;
 }
 interface Activity { id: string; task_id: string; actor_id: string | null; action: string; detail: any; created_at: string; }
@@ -269,7 +269,7 @@ export default function TasksPage() {
     }
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter(t => t.title.toLowerCase().includes(q) || nameOf(t.assignee_id).toLowerCase().includes(q));
+      list = list.filter(t => t.title.toLowerCase().includes(q) || nameOf(t.assignee_id).toLowerCase().includes(q) || ("task-" + (t.task_number ?? "")).includes(q) || String(t.task_number ?? "").includes(q));
     }
     return list;
   }, [tasks, scope, myId, isAdminLike, myReports, search, nameOf]);
@@ -436,6 +436,7 @@ export default function TasksPage() {
   );
 
   return (
+    <div className="-m-5 p-5 min-h-[70vh]" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.16) 1.5px, transparent 1.6px)", backgroundSize: "16px 16px" }}>
     <div className="max-w-7xl mx-auto">
       {/* header */}
       <div className="flex flex-wrap items-center gap-3 mb-5">
@@ -444,10 +445,6 @@ export default function TasksPage() {
           <p className="text-sm text-gray-400">Assign, track TAT and verify work across your team</p>
         </div>
 
-        <button onClick={() => setShowPanel(s => !s)} title="Toggle insights panel"
-          className={`flex items-center justify-center w-9 h-9 rounded-lg border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
-          <PanelLeft className="w-4 h-4" />
-        </button>
 
         {/* scope toggle */}
         {canSeeTeam && (
@@ -512,10 +509,6 @@ export default function TasksPage() {
               </div>
             )}
           </div>}
-          <button onClick={() => setShowCreate("todo")}
-            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
-            <Plus className="w-4 h-4" />New task
-          </button>
         </div>
       </div>
 
@@ -524,7 +517,7 @@ export default function TasksPage() {
         {/* slim rail — always visible (New task + insights toggle), like the canvas toolbar */}
         <div className="flex flex-col items-center gap-2 rounded-2xl border border-gray-100 bg-white p-2 shadow-sm h-fit sticky top-2 shrink-0">
           <button onClick={() => setShowCreate("todo")} title="New task" className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"><Plus className="w-5 h-5" /></button>
-          <button onClick={() => setShowPanel(s => !s)} title="Insights & filters" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}><BarChart3 className="w-5 h-5" /></button>
+          <button onClick={() => setShowPanel(s => !s)} title="Insights & filters" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}><PanelLeft className="w-5 h-5" /></button>
         </div>
         {showPanel && <div onClick={() => setShowPanel(false)} className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" />}
         {showPanel && (
@@ -602,7 +595,7 @@ export default function TasksPage() {
 
         <div className="flex-1 min-w-0">
       {view === "board" && (
-        <div className="flex gap-4 overflow-x-auto pb-3 rounded-2xl p-3 transition-colors" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.16) 1.5px, transparent 1.6px)", backgroundSize: "16px 16px" }}>
+        <div className="flex gap-4 overflow-x-auto pb-3 p-1 transition-colors">
           {LANES.map(lane => {
             const items = shown.filter(t => t.status === lane.id);
             const pk = columnColors[lane.id];
@@ -649,6 +642,7 @@ export default function TasksPage() {
                       <div key={t.id} draggable onDragStart={() => setDraggingId(t.id)} onClick={() => openDrawer(t.id)}
                         className="group cursor-pointer rounded-xl bg-white p-3 shadow-[0_2px_4px_rgba(15,23,42,0.08),0_10px_24px_rgba(15,23,42,0.12)] transition hover:-translate-y-0.5 hover:shadow-[0_4px_8px_rgba(15,23,42,0.12),0_16px_32px_rgba(15,23,42,0.16)] active:cursor-grabbing"
                         style={{ border: `2px solid ${cardBorderColor}` }}>
+                        {t.task_number != null && <div className="text-[10px] font-bold tracking-wide text-gray-400 mb-0.5">TASK-{t.task_number}</div>}
                         <div className="text-[13.5px] font-semibold text-gray-900 leading-snug line-clamp-2">{t.title}</div>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: pm.bg, color: pm.color }}>{pm.label}</span>
@@ -698,7 +692,7 @@ export default function TasksPage() {
                   const badge = tatBadge(t);
                   return (
                     <tr key={t.id} onClick={() => openDrawer(t.id)} className="border-b border-gray-100 hover:bg-gray-50/70 cursor-pointer">
-                      <td className="px-3 py-2.5 font-semibold text-gray-900">{t.title}{t.reopen_count > 0 && <span className="ml-1.5 text-[10px] font-semibold text-rose-500">↺{t.reopen_count}</span>}</td>
+                      <td className="px-3 py-2.5 font-semibold text-gray-900"><span className="text-[10px] font-bold text-gray-400 mr-1.5">TASK-{t.task_number}</span>{t.title}{t.reopen_count > 0 && <span className="ml-1.5 text-[10px] font-semibold text-rose-500">↺{t.reopen_count}</span>}</td>
                       <td className="px-3 py-2.5 text-gray-700">{nameOf(t.assignee_id)}</td>
                       <td className="px-3 py-2.5"><span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: STATUS_META[t.status].bg, color: STATUS_META[t.status].color }}>{STATUS_META[t.status].label}</span></td>
                       <td className="px-3 py-2.5"><span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: PRIORITY_META[t.priority].bg, color: PRIORITY_META[t.priority].color }}>{PRIORITY_META[t.priority].label}</span></td>
@@ -768,6 +762,7 @@ export default function TasksPage() {
           {toast.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}{toast.msg}
         </div>
       )}
+    </div>
     </div>
   );
 }
@@ -927,7 +922,7 @@ function TaskDrawer(props: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
       <aside onClick={e => e.stopPropagation()} className="w-full max-w-lg max-h-[90vh] flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ background: STATUS_META[t.status].bg, color: STATUS_META[t.status].color }}>{STATUS_META[t.status].label}</span>
+          <div className="flex items-center gap-2"><span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ background: STATUS_META[t.status].bg, color: STATUS_META[t.status].color }}>{STATUS_META[t.status].label}</span>{t.task_number != null && <span className="text-[11px] font-bold text-gray-400">TASK-{t.task_number}</span>}</div>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
         </div>
 

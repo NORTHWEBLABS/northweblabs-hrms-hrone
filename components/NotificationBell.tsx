@@ -74,7 +74,7 @@ export default function NotificationBell() {
           fetchNotifs();
           if (btnRef.current) {
             const r = btnRef.current.getBoundingClientRect();
-            setPos({ top: r.bottom + 8, left: Math.min(r.left, window.innerWidth - 330) });
+            setPos({ top: r.bottom + 8, left: Math.max(8, Math.min(r.left, window.innerWidth - 330)) });
           }
         }
       }}
@@ -88,7 +88,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div ref={ref} className="fixed w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-[100]"
+        <div ref={ref} className="fixed w-80 max-w-[92vw] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-[100]"
           style={{ top: pos.top, left: pos.left }}>
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-bold text-gray-900">Notifications</h3>
