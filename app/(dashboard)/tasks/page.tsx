@@ -31,7 +31,7 @@ interface Task {
   created_at: string;
 }
 interface Activity { id: string; task_id: string; actor_id: string | null; action: string; detail: any; created_at: string; }
-type ViewMode = "board" | "table" | "list";
+type ViewMode = "board" | "table";
 type Scope = "mine" | "team";
 
 /* ─────────── constants ─────────── */
@@ -138,7 +138,7 @@ export default function TasksPage() {
   const [palette, setPalette] = useState<null | { kind: "bg" } | { kind: "col"; status: Status }>(null);
 
   // left analytics/controls panel + view filters
-  const [showPanel, setShowPanel] = useState(true);
+  const [showPanel, setShowPanel] = useState(false);
   const [hideVerified, setHideVerified] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState<Priority | "all">("all");
   const [drawerId, setDrawerId] = useState<string | null>(null);
@@ -444,7 +444,7 @@ export default function TasksPage() {
 
         {/* view tabs */}
         <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
-          {([["board", "Board", LayoutGrid], ["table", "Table", TableIcon], ["list", "List", ListIcon]] as const).map(([id, label, Icon]) => (
+          {([["board", "Board", LayoutGrid], ["table", "Table", TableIcon]] as const).map(([id, label, Icon]) => (
             <button key={id} onClick={() => setView(id)}
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${view === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
               <Icon className="w-3.5 h-3.5" />{label}
@@ -456,7 +456,7 @@ export default function TasksPage() {
           <div className="relative">
             <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-              className="w-44 pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+              className="w-36 md:w-44 pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
           </div>
           {canEditTheme && <div className="relative">
             <button onClick={() => setPalette(palette && (palette as any).kind === "bg" ? null : { kind: "bg" })}
@@ -501,9 +501,17 @@ export default function TasksPage() {
       </div>
 
       {/* views */}
-      <div className="flex gap-4">
+      <div className="flex gap-4 relative">
+        {showPanel && <div onClick={() => setShowPanel(false)} className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" />}
         {showPanel && (
-          <aside className="hidden lg:flex w-60 shrink-0 flex-col gap-3">
+          <aside className="fixed lg:static inset-y-0 left-0 z-50 lg:z-auto w-72 lg:w-60 shrink-0 flex flex-col gap-3 overflow-y-auto bg-gray-50 lg:bg-transparent p-3 lg:p-0 shadow-2xl lg:shadow-none">
+            <div className="flex items-center justify-between lg:hidden">
+              <span className="text-sm font-bold text-gray-700">Insights & filters</span>
+              <button onClick={() => setShowPanel(false)} className="p-1.5 rounded-lg hover:bg-gray-200"><X className="w-4 h-4 text-gray-500" /></button>
+            </div>
+            <button onClick={() => setShowCreate("todo")} className="flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 shadow-sm">
+              <Plus className="w-4 h-4" />New task
+            </button>
             {/* insights */}
             <div className="rounded-2xl border border-gray-100 bg-white p-3.5 shadow-sm">
               <div className="flex items-center gap-1.5 mb-3">
@@ -570,7 +578,7 @@ export default function TasksPage() {
 
         <div className="flex-1 min-w-0">
       {view === "board" && (
-        <div className="flex gap-4 overflow-x-auto pb-3 rounded-2xl p-3 -mx-1 transition-colors" style={{ background: boardBg }}>
+        <div className="flex gap-4 overflow-x-auto pb-3 rounded-2xl p-3 -mx-1 transition-colors" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.06) 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
           {LANES.map(lane => {
             const items = shown.filter(t => t.status === lane.id);
             const pk = columnColors[lane.id];
@@ -647,10 +655,10 @@ export default function TasksPage() {
         </div>
       )}
 
-      {(view === "table" || view === "list") && (
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      {view === "table" && (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-x-auto">
           {view === "table" ? (
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" style={{ minWidth: "640px" }}>
               <thead className="bg-gray-50 border-b border-gray-200 text-[11px] uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-3 py-2.5 text-left font-semibold">Task</th>
