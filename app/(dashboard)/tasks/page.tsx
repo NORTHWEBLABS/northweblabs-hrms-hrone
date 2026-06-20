@@ -900,9 +900,8 @@ function TaskDrawer(props: {
   const [desc, setDesc] = useState(t.description || "");
 
   return (
-    <>
-      <div className="fixed inset-0 z-40 bg-slate-900/20" onClick={onClose} />
-      <aside className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md flex flex-col bg-white shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <aside onClick={e => e.stopPropagation()} className="w-full max-w-lg max-h-[90vh] flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <span className="rounded-md px-2 py-0.5 text-[11px] font-bold" style={{ background: STATUS_META[t.status].bg, color: STATUS_META[t.status].color }}>{STATUS_META[t.status].label}</span>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
@@ -1058,7 +1057,7 @@ function TaskDrawer(props: {
           )}
         </div>
       </aside>
-    </>
+    </div>
   );
 }
 
