@@ -5,6 +5,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import { format, isAfter, isBefore, startOfDay } from "date-fns";
 
 import { cn } from "@/lib/utils";
+import { fetchWorkingDays, workingDaysBetween, DEFAULT_WORKING_DAYS } from "@/lib/schedule";
 import {
   CalendarDays, Calendar, Plus, Check, X, Clock, ChevronDown,
   Loader2, AlertCircle, CheckCircle2, RefreshCw,
@@ -79,19 +80,6 @@ const STATUS_CONFIG: Record<LeaveStatus, { bg: string; text: string; border: str
 const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day:"numeric", month:"short", year:"numeric" });
 const fmtShort = (d: string) => new Date(d).toLocaleDateString("en-IN", { day:"numeric", month:"short" });
 
-function calcDays(from: string, to: string): number {
-  if (!from || !to) return 0;
-  const f = new Date(from), t = new Date(to);
-  if (t < f) return 0;
-  let days = 0;
-  const d = new Date(f);
-  while (d <= t) {
-    if (d.getDay() !== 0 && d.getDay() !== 6) days++;
-    d.setDate(d.getDate() + 1);
-  }
-  return days;
-}
-
 function getInitials(name: string) {
   return name.split(" ").map(w => w[0]).slice(0,2).join("").toUpperCase();
 }
@@ -133,10 +121,22 @@ function RequestLeaveModal({
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string,string>>({});
+  const [workingDays, setWorkingDays] = useState<number[]>(DEFAULT_WORKING_DAYS);
+
+  // Resolve the selected employee's working-day policy: override -> org default -> fallback
+  useEffect(() => {
+    let active = true;
+    if (!empId || !orgId) { setWorkingDays(DEFAULT_WORKING_DAYS); return; }
+    fetchWorkingDays(supabase, orgId, empId).then(wd => { if (active) setWorkingDays(wd); });
+    return () => { active = false; };
+  }, [empId, orgId, supabase]);
 
   const fromDateStr = fromDate ? format(fromDate, "yyyy-MM-dd") : "";
   const toDateStr   = toDate   ? format(toDate,   "yyyy-MM-dd") : "";
-  const days = useMemo(() => calcDays(fromDateStr, toDateStr), [fromDateStr, toDateStr]);
+  const days = useMemo(
+    () => (fromDate && toDate && toDate >= fromDate ? workingDaysBetween(fromDate, toDate, workingDays) : 0),
+    [fromDate, toDate, workingDays]
+  );
 
   const validate = () => {
     const e: Record<string,string> = {};
@@ -182,7 +182,7 @@ function RequestLeaveModal({
         <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
           <div>
             <h2 className="text-base font-bold text-gray-900">Request leave</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Working days only (excludes weekends)</p>
+            <p className="text-xs text-gray-400 mt-0.5">Working days only (per work schedule)</p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-500"/></button>
         </div>
