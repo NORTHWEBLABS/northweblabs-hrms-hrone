@@ -112,7 +112,7 @@ export default async function DashboardLayout({
       />
       <AppContextMenu>
         <main className="flex-1 overflow-y-auto">
-          <MobileTopBar orgName={orgName} />
+          <MobileTopBar orgName={orgName} userInitials={userInitials} />
           <div className="p-5">{children}</div>
         </main>
       </AppContextMenu>
