@@ -444,7 +444,7 @@ export default function TasksPage() {
   );
 
   return (
-    <div className="-m-5 min-h-screen" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.07) 1.2px, transparent 1.3px)", backgroundSize: "18px 18px" }}>
+    <div className="-m-5 min-h-screen overflow-x-clip" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.07) 1.2px, transparent 1.3px)", backgroundSize: "18px 18px" }}>
     <div className="flex min-h-screen">
       {/* left-extreme white vertical strip — actions + collapsible analytics */}
       <div ref={paletteRef} className="sticky top-0 self-start min-h-screen z-20 relative flex bg-white border-r border-gray-200 shadow-sm shrink-0">
@@ -808,8 +808,8 @@ function CreateModal(props: {
   const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200";
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start sm:items-center justify-center p-4 py-6 overflow-y-auto overflow-x-hidden backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto overflow-x-hidden my-auto" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-base font-bold text-gray-900">New task</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>

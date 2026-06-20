@@ -32,7 +32,7 @@ export default function NotificationBell() {
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState({ top: 0, right: 8 });
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node) && btnRef.current && !btnRef.current.contains(e.target as Node)) setOpen(false); };
@@ -74,7 +74,7 @@ export default function NotificationBell() {
           fetchNotifs();
           if (btnRef.current) {
             const r = btnRef.current.getBoundingClientRect();
-            setPos({ top: r.bottom + 8, left: Math.max(8, Math.min(r.left, window.innerWidth - 330)) });
+            setPos({ top: r.bottom + 8, right: Math.max(8, window.innerWidth - r.right) });
           }
         }
       }}
@@ -89,7 +89,7 @@ export default function NotificationBell() {
 
       {open && (
         <div ref={ref} className="fixed w-80 max-w-[92vw] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-[100]"
-          style={{ top: pos.top, left: pos.left }}>
+          style={{ top: pos.top, right: pos.right }}>
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-bold text-gray-900">Notifications</h3>
             <div className="flex items-center gap-1">
