@@ -216,6 +216,25 @@ export default function TasksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ── realtime: reflect task changes from other users without a refresh ── */
+  useEffect(() => {
+    if (!orgId) return;
+    const ch = sb.channel(`tasks-rt:${orgId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `org_id=eq.${orgId}` },
+        (payload: any) => {
+          const row = (payload.new || payload.old) as Task;
+          if (!row?.id) return;
+          setTasks(prev => {
+            if (payload.eventType === "DELETE") return prev.filter(t => t.id !== row.id);
+            return prev.some(t => t.id === row.id)
+              ? prev.map(t => (t.id === row.id ? { ...t, ...row } : t))
+              : [row, ...prev];
+          });
+        })
+      .subscribe();
+    return () => { sb.removeChannel(ch); };
+  }, [orgId, sb]);
+
   /* ── derived perms ── */
   const myId = self?.employeeId ?? null;
   const isAdminLike = ADMIN_LIKE.includes(role);
@@ -501,7 +520,12 @@ export default function TasksPage() {
       </div>
 
       {/* views */}
-      <div className="flex gap-4 relative">
+      <div className="flex gap-3 relative">
+        {/* slim rail — always visible (New task + insights toggle), like the canvas toolbar */}
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-gray-100 bg-white p-2 shadow-sm h-fit sticky top-2 shrink-0">
+          <button onClick={() => setShowCreate("todo")} title="New task" className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"><Plus className="w-5 h-5" /></button>
+          <button onClick={() => setShowPanel(s => !s)} title="Insights & filters" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}><BarChart3 className="w-5 h-5" /></button>
+        </div>
         {showPanel && <div onClick={() => setShowPanel(false)} className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" />}
         {showPanel && (
           <aside className="fixed lg:static inset-y-0 left-0 z-50 lg:z-auto w-72 lg:w-60 shrink-0 flex flex-col gap-3 overflow-y-auto bg-gray-50 lg:bg-transparent p-3 lg:p-0 shadow-2xl lg:shadow-none">
@@ -578,7 +602,7 @@ export default function TasksPage() {
 
         <div className="flex-1 min-w-0">
       {view === "board" && (
-        <div className="flex gap-4 overflow-x-auto pb-3 rounded-2xl p-3 -mx-1 transition-colors" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.06) 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
+        <div className="flex gap-4 overflow-x-auto pb-3 rounded-2xl p-3 transition-colors" style={{ backgroundColor: boardBg, backgroundImage: "radial-gradient(circle, rgba(15,23,42,0.16) 1.5px, transparent 1.6px)", backgroundSize: "16px 16px" }}>
           {LANES.map(lane => {
             const items = shown.filter(t => t.status === lane.id);
             const pk = columnColors[lane.id];
