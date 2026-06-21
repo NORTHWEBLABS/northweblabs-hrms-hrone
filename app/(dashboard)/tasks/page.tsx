@@ -336,7 +336,7 @@ export default function TasksPage() {
       await fetch("/api/tasks/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, title: n.title, body: n.body ?? null, type: n.type ?? "info", link: n.link ?? "/tasks" }),
+        body: JSON.stringify({ employeeId: userId, orgId, title: n.title, body: n.body ?? null, type: n.type ?? "info", link: n.link ?? "/tasks" }),
       });
     } catch { /* non-blocking */ }
   }, [myId]);
@@ -422,6 +422,10 @@ export default function TasksPage() {
       return;
     }
     if (to === "inprogress" && t.status === "submitted") {
+      if (canVerify(t)) setRejectFor(t); else flash("Only the manager/creator can reject", "error");
+      return;
+    }
+    if (to === "todo" && t.status === "submitted") {
       if (canVerify(t)) setRejectFor(t); else flash("Only the manager/creator can reject", "error");
       return;
     }
