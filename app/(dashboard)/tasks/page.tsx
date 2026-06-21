@@ -449,14 +449,18 @@ export default function TasksPage() {
       {/* left-extreme white vertical strip — actions + collapsible analytics */}
       <div ref={paletteRef} className="sticky top-0 self-start min-h-screen z-20 relative flex bg-white border-r border-gray-200 shadow-sm shrink-0">
         <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 p-2">
-          <button onClick={() => setShowCreate("todo")} title="New task" className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"><Plus className="w-5 h-5" /></button>
+          <button onClick={() => setShowCreate(showCreate ? null : "todo")} title="New task" className={`flex h-10 w-10 items-center justify-center rounded-xl shadow-sm transition ${showCreate ? "bg-indigo-700 text-white ring-2 ring-indigo-300" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}><Plus className="w-5 h-5" /></button>
           <div className="my-0.5 h-px w-7 bg-gray-100" />
           <button onClick={() => setShowPanel(s => !s)} title="Analytics & filters" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${showPanel ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600"}`}><PanelLeft className="w-5 h-5" /></button>
           <button onClick={() => setHideVerified(v => !v)} title={hideVerified ? "Show verified" : "Hide verified"} className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${hideVerified ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600"}`}>{hideVerified ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
           {canEditTheme && <button onClick={() => setPalette(palette && (palette as any).kind === "bg" ? null : { kind: "bg" })} title="Board theme" className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${palette && (palette as any).kind === "bg" ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600"}`}><Palette className="w-5 h-5" /></button>}
         </div>
-        {showPanel && (
-          <div className="w-60 max-w-[72vw] shrink-0 overflow-y-auto border-l border-gray-100 bg-gray-50/40 p-3 space-y-3">
+        {(showCreate || showPanel) && (
+          <div className="w-64 max-w-[78vw] shrink-0 overflow-hidden border-l border-gray-100 bg-gray-50/40">
+            {showCreate ? (
+              <CreateModal defaultStatus={showCreate} myId={myId!} assignOptions={assignOptions} onClose={() => setShowCreate(null)} onCreate={createTask} />
+            ) : (
+              <div className="h-full overflow-y-auto p-3 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-bold text-gray-700">Analytics</span>
               <button onClick={() => setShowPanel(false)} className="rounded-lg p-1 hover:bg-gray-200"><X className="w-4 h-4 text-gray-400" /></button>
@@ -520,6 +524,8 @@ export default function TasksPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
               </div>
             )}
           </div>
@@ -743,12 +749,6 @@ export default function TasksPage() {
       )}
 
       {/* create modal */}
-      {showCreate && (
-        <CreateModal
-          defaultStatus={showCreate} myId={myId!} assignOptions={assignOptions}
-          onClose={() => setShowCreate(null)} onCreate={createTask}
-        />
-      )}
 
       {/* reject modal */}
       {rejectFor && (
@@ -799,24 +799,20 @@ function CreateModal(props: {
   const [desc, setDesc] = useState("");
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newItem, setNewItem] = useState("");
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
   const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200";
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
-      <div onClick={e => e.stopPropagation()}
-        className={`absolute inset-y-0 right-0 flex w-[80%] max-w-md flex-col bg-white shadow-2xl overflow-x-hidden transition-transform duration-200 ${mounted ? "translate-x-0" : "translate-x-full"}`}>
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 className="text-base font-bold text-gray-900">New task</h2>
-          <button onClick={onClose} className="rounded-lg p-2 hover:bg-gray-100"><X className="w-4 h-4 text-gray-400" /></button>
+    <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between border-b border-gray-100 px-3 py-3">
+          <span className="text-sm font-bold text-gray-700">New task</span>
+          <button onClick={onClose} className="rounded-lg p-1 hover:bg-gray-200"><X className="w-4 h-4 text-gray-400" /></button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-3 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Title *</label>
             <input value={title} onChange={e => setTitle(e.target.value)} placeholder="What needs doing?" className={inputCls} autoFocus />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Assignee</label>
               <select value={assignee} onChange={e => setAssignee(e.target.value)} className={inputCls + " bg-white"}>
@@ -858,12 +854,11 @@ function CreateModal(props: {
             </>
           )}
         </div>
-        <div className="flex gap-2 border-t border-gray-100 px-5 py-3">
+        <div className="flex gap-2 border-t border-gray-100 p-3">
           <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
           <button onClick={() => title.trim() && onCreate({ title, description: desc, assigneeId: assignee, tatHours: tat, priority, status: props.defaultStatus, checklist })}
             disabled={!title.trim()} className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50">Create task</button>
         </div>
-      </div>
     </div>
   );
 }
