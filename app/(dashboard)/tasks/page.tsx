@@ -363,10 +363,21 @@ export default function TasksPage() {
     flash("Task created");
   };
 
+  const updateTask = async (id: string, patch: Record<string, any>) => {
+    try {
+      const res = await fetch("/api/tasks/update", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, patch }),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); flash(j.error || "Couldn't save change", "error"); return false; }
+      return true;
+    } catch { flash("Network error saving change", "error"); return false; }
+  };
+
   const startTask = async (t: Task) => {
     const patch = { status: "inprogress" as Status, started_at: t.started_at || nowIso() };
     patchLocal(t.id, patch);
-    await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
+    await updateTask(t.id, { ...patch, updated_at: nowIso() });
     logActivity(t.id, "started");
   };
   const submitTask = async (t: Task) => {
@@ -374,7 +385,7 @@ export default function TasksPage() {
     if (cl.length > 0 && cl.some(c => !c.done)) { flash("Complete all checklist items before submitting", "error"); return; }
     const patch = { status: "submitted" as Status, submitted_at: nowIso(), submitted_by: myId };
     patchLocal(t.id, patch);
-    await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
+    await updateTask(t.id, { ...patch, updated_at: nowIso() });
     logActivity(t.id, "submitted");
     notify((t as any).created_by, { title: `Review needed: ${t.title}`, body: `${nameOf(myId)} submitted this for review`, type: "approval", link: "/tasks" });
     flash("Submitted for review");
@@ -382,7 +393,7 @@ export default function TasksPage() {
   const verifyTask = async (t: Task) => {
     const patch = { status: "verified" as Status, verified_at: nowIso(), verified_by: myId };
     patchLocal(t.id, patch);
-    await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
+    await updateTask(t.id, { ...patch, updated_at: nowIso() });
     logActivity(t.id, "verified");
     notify(t.assignee_id, { title: `Verified: ${t.title}`, body: "Your task was approved and closed", type: "approval_result", link: "/tasks" });
     flash("Task verified & closed");
@@ -395,7 +406,7 @@ export default function TasksPage() {
       tat_hours: tatHours || null, assigned_at: nowIso(), due_at: due,
     };
     patchLocal(t.id, patch as Partial<Task>);
-    await sb.from("tasks").update({ ...patch, last_reopened_at: nowIso(), updated_at: nowIso() }).eq("id", t.id);
+    await updateTask(t.id, { ...patch, last_reopened_at: nowIso(), updated_at: nowIso() });
     logActivity(t.id, "reopened", { reason, tat_hours: tatHours });
     notify(t.assignee_id, { title: `Sent back: ${t.title}`, body: reason || "Needs changes", type: "alert", link: "/tasks" });
     setRejectFor(null);
@@ -406,7 +417,7 @@ export default function TasksPage() {
       notify(patch.assignee_id, { title: `Reassigned to you: ${t.title}`, body: `${nameOf(myId)} assigned you this task`, type: "info", link: "/tasks" });
     }
     patchLocal(t.id, patch);
-    await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
+    await updateTask(t.id, { ...patch, updated_at: nowIso() });
   };
   const deleteTask = async (t: Task) => {
     setTasks(prev => prev.filter(x => x.id !== t.id));
@@ -415,32 +426,37 @@ export default function TasksPage() {
   };
 
   // status change requested via drag or buttons — routes to the right guarded action
-  const requestStatusChange = (t: Task, to: Status) => {
+  const requestStatusChange = async (t: Task, to: Status) => {
     if (t.status === to) return;
-    if (to === "verified" && t.status === "submitted") {
-      if (canVerify(t)) verifyTask(t); else flash("Only the manager/creator can verify", "error");
-      return;
-    }
-    if (to === "inprogress" && t.status === "submitted") {
-      if (canVerify(t)) setRejectFor(t); else flash("Only the manager/creator can reject", "error");
-      return;
-    }
-    if (to === "todo" && t.status === "submitted") {
-      if (canVerify(t)) setRejectFor(t); else flash("Only the manager/creator can reject", "error");
-      return;
-    }
-    if (to === "submitted" && t.status === "inprogress") {
-      if (isAssignee(t)) submitTask(t); else flash("Only the assignee can submit", "error");
-      return;
-    }
+    // forward: start
     if (to === "inprogress" && t.status === "todo") {
       if (isAssignee(t) || canVerify(t)) startTask(t); else flash("Only the assignee can start this", "error");
       return;
     }
-    // any other move (e.g. backwards) — managers/admin only
+    // forward: submit
+    if (to === "submitted" && t.status === "inprogress") {
+      if (isAssignee(t)) submitTask(t); else flash("Only the assignee can submit", "error");
+      return;
+    }
+    // forward: verify
+    if (to === "verified" && t.status === "submitted") {
+      if (canVerify(t)) verifyTask(t); else flash("Only the manager/creator can verify", "error");
+      return;
+    }
+    // backward: dragging to To do or In progress from a later stage = reopen (reason + new TAT)
+    const isReopen =
+      (to === "todo" && t.status !== "todo") ||
+      (to === "inprogress" && (t.status === "submitted" || t.status === "verified"));
+    if (isReopen) {
+      if (canVerify(t)) setRejectFor(t); else flash("Only the manager/creator can reopen this", "error");
+      return;
+    }
+    // anything else — managers/admin only (direct), revert local state if the write fails
     if (isAdminLike || canVerify(t)) {
+      const prev = t.status;
       patchLocal(t.id, { status: to });
-      sb.from("tasks").update({ status: to, updated_at: nowIso() }).eq("id", t.id);
+      const ok = await updateTask(t.id, { status: to, updated_at: nowIso() });
+      if (!ok) { patchLocal(t.id, { status: prev }); return; }
       logActivity(t.id, "status_changed", { to });
     } else {
       flash("You can't move this card", "error");

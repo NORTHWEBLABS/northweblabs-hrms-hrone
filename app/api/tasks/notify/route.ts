@@ -64,6 +64,12 @@ export async function POST(request: Request) {
         if (u) { resolvedUserId = u.id; to = u.email || email; }
         else { to = email; }
       }
+      // fallback: maybe the passed id is already a users.id
+      if (!resolvedUserId) {
+        const { data: u2 } = await supabase.from("users").select("id, email").eq("id", employeeId).maybeSingle();
+        if (u2) { resolvedUserId = u2.id; to = u2.email || to; }
+      }
+      console.log(`[task-notify] employeeId=${employeeId} -> userId=${resolvedUserId ?? "none"} email=${to ?? "none"}`);
     }
 
     if (!resolvedUserId && !to) {
