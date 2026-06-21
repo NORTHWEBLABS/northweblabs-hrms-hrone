@@ -1,8 +1,8 @@
 "use client";
 // Component: components/NotificationBell.tsx
-// Shows bell icon with unread count + dropdown of recent notifications (live via realtime)
+// Shows bell icon with unread count + dropdown of recent notifications
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { Bell, X, Check, CheckCheck, Inbox } from "lucide-react";
 
@@ -29,7 +29,6 @@ export default function NotificationBell() {
   const sb = useMemo(() => createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!), []);
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [open, setOpen] = useState(false);
-  const [uid, setUid] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState({ top: 0, right: 8 });
@@ -40,43 +39,17 @@ export default function NotificationBell() {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  // resolve the current user id once (custom-auth: email is the bridge)
-  useEffect(() => {
-    (async () => {
-      const email = typeof window !== "undefined" ? localStorage.getItem("userEmail") || "" : "";
-      if (!email) return;
-      const { data: u } = await sb.from("users").select("id").eq("email", email).maybeSingle();
-      if (u) setUid(u.id);
-    })();
-  }, [sb]);
-
-  const fetchNotifs = useCallback(async () => {
-    if (!uid) return;
-    const { data } = await sb.from("notifications").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(20);
+  const fetchNotifs = async () => {
+    const email = typeof window !== "undefined" ? localStorage.getItem("userEmail") || "" : "";
+    if (!email) return;
+    const { data: u } = await sb.from("users").select("id").eq("email", email).maybeSingle();
+    if (!u) return;
+    const { data } = await sb.from("notifications").select("*").eq("user_id", u.id).order("created_at", { ascending: false }).limit(20);
     if (data) setNotifs(data as Notif[]);
-  }, [sb, uid]);
+  };
 
-  // initial load + 30s poll fallback
-  useEffect(() => { if (!uid) return; fetchNotifs(); const i = setInterval(fetchNotifs, 30000); return () => clearInterval(i); }, [uid, fetchNotifs]);
-
-  // realtime: live updates for this user without refresh
-  useEffect(() => {
-    if (!uid) return;
-    const ch = sb.channel(`notif:${uid}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${uid}` },
-        (payload: any) => {
-          const row = (payload.new || payload.old) as Notif;
-          if (!row?.id) return;
-          setNotifs(prev => {
-            if (payload.eventType === "DELETE") return prev.filter(n => n.id !== row.id);
-            return prev.some(n => n.id === row.id)
-              ? prev.map(n => (n.id === row.id ? { ...n, ...row } : n))
-              : [row, ...prev].slice(0, 20);
-          });
-        })
-      .subscribe();
-    return () => { sb.removeChannel(ch); };
-  }, [uid, sb]);
+  // Poll every 30s
+  useEffect(() => { fetchNotifs(); const i = setInterval(fetchNotifs, 30000); return () => clearInterval(i); }, [sb]);
 
   const unread = notifs.filter(n => !n.read).length;
 
