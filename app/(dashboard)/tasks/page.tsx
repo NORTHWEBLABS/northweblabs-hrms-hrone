@@ -556,16 +556,10 @@ export default function TasksPage() {
       <div className="flex-1 min-w-0 p-4 sm:p-5">
     <div className="max-w-7xl mx-auto">
       {/* header — white toolbar strip */}
-      <div className="bg-white/95 backdrop-blur rounded-2xl border border-gray-200/80 shadow-sm px-3 py-2.5 mb-4 flex flex-wrap items-center gap-2.5">
-        <div>
-          <h1 className="text-lg sm:text-xl font-bold text-gray-900">Tasks</h1>
-          <p className="hidden sm:block text-sm text-gray-400">Assign, track TAT and verify work across your team</p>
-        </div>
-
-
+      <div className="bg-white/95 backdrop-blur rounded-2xl border border-gray-200/80 shadow-sm px-2.5 py-2 mb-4 flex flex-wrap items-center gap-2">
         {/* scope toggle */}
         {canSeeTeam && (
-          <div className="ml-2 flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
+          <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
             {([["mine", "My tasks", UserIcon], ["team", "Team", Users]] as const).map(([id, label, Icon]) => (
               <button key={id} onClick={() => setScope(id)}
                 className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${scope === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
@@ -585,11 +579,11 @@ export default function TasksPage() {
           ))}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <div className="relative">
+        <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-2">
+          <div className="relative w-full sm:w-auto">
             <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-              className="w-36 md:w-44 pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+              className="w-full sm:w-40 md:w-44 pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" />
           </div>
 
         </div>
@@ -805,16 +799,19 @@ function CreateModal(props: {
   const [desc, setDesc] = useState("");
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newItem, setNewItem] = useState("");
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200";
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-start sm:items-center justify-center p-4 py-6 overflow-y-auto overflow-x-hidden backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto overflow-x-hidden my-auto" onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()}
+        className={`fixed inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-2xl overflow-x-hidden transition-transform duration-200 ${mounted ? "translate-x-0" : "translate-x-full"}`}>
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <h2 className="text-base font-bold text-gray-900">New task</h2>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
+          <button onClick={onClose} className="rounded-lg p-2 hover:bg-gray-100"><X className="w-4 h-4 text-gray-400" /></button>
         </div>
-        <div className="px-6 py-5 space-y-4">
+        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Title *</label>
             <input value={title} onChange={e => setTitle(e.target.value)} placeholder="What needs doing?" className={inputCls} autoFocus />
@@ -861,7 +858,7 @@ function CreateModal(props: {
             </>
           )}
         </div>
-        <div className="px-6 py-3 border-t border-gray-100 flex gap-2 sticky bottom-0 bg-white">
+        <div className="flex gap-2 border-t border-gray-100 px-5 py-3">
           <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
           <button onClick={() => title.trim() && onCreate({ title, description: desc, assigneeId: assignee, tatHours: tat, priority, status: props.defaultStatus, checklist })}
             disabled={!title.trim()} className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50">Create task</button>
