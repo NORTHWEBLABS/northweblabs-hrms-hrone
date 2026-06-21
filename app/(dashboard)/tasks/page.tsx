@@ -330,6 +330,19 @@ export default function TasksPage() {
     } catch { /* best effort */ }
   };
 
+  const notify = useCallback(async (userId: string | null | undefined, n: { title: string; body?: string | null; type?: string; link?: string }) => {
+    if (!userId || userId === myId) return;
+    try {
+      await sb.from("notifications").insert({
+        user_id: userId,
+        title: n.title,
+        body: n.body ?? null,
+        type: n.type ?? "info",
+        link: n.link ?? "/tasks",
+      });
+    } catch { /* non-blocking */ }
+  }, [sb, myId]);
+
   const createTask = async (input: {
     title: string; description: string; assigneeId: string; tatHours: number; priority: Priority; status: Status; checklist: ChecklistItem[];
   }) => {
@@ -347,6 +360,7 @@ export default function TasksPage() {
     if (error) { flash(error.message, "error"); return; }
     setTasks(prev => [data as Task, ...prev]);
     logActivity((data as Task).id, "created", { assignee: nameOf(row.assignee_id), tat_hours: input.tatHours });
+    notify(row.assignee_id, { title: `New task: ${row.title}`, body: `Assigned by ${nameOf(myId)}`, type: "info", link: "/tasks" });
     setShowCreate(null);
     flash("Task created");
   };
@@ -362,6 +376,7 @@ export default function TasksPage() {
     patchLocal(t.id, patch);
     await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
     logActivity(t.id, "submitted");
+    notify((t as any).created_by, { title: `Review needed: ${t.title}`, body: `${nameOf(myId)} submitted this for review`, type: "approval", link: "/tasks" });
     flash("Submitted for review");
   };
   const verifyTask = async (t: Task) => {
@@ -369,6 +384,7 @@ export default function TasksPage() {
     patchLocal(t.id, patch);
     await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
     logActivity(t.id, "verified");
+    notify(t.assignee_id, { title: `Verified: ${t.title}`, body: "Your task was approved and closed", type: "approval_result", link: "/tasks" });
     flash("Task verified & closed");
   };
   const rejectTask = async (t: Task, reason: string, tatHours: number) => {
@@ -381,10 +397,14 @@ export default function TasksPage() {
     patchLocal(t.id, patch as Partial<Task>);
     await sb.from("tasks").update({ ...patch, last_reopened_at: nowIso(), updated_at: nowIso() }).eq("id", t.id);
     logActivity(t.id, "reopened", { reason, tat_hours: tatHours });
+    notify(t.assignee_id, { title: `Sent back: ${t.title}`, body: reason || "Needs changes", type: "alert", link: "/tasks" });
     setRejectFor(null);
     flash("Sent back with a fresh TAT");
   };
   const editTask = async (t: Task, patch: Partial<Task>) => {
+    if (patch.assignee_id && patch.assignee_id !== t.assignee_id) {
+      notify(patch.assignee_id, { title: `Reassigned to you: ${t.title}`, body: `${nameOf(myId)} assigned you this task`, type: "info", link: "/tasks" });
+    }
     patchLocal(t.id, patch);
     await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
   };
