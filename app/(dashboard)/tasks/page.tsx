@@ -806,7 +806,7 @@ function CreateModal(props: {
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
       <div onClick={e => e.stopPropagation()}
-        className={`absolute inset-y-0 right-0 flex w-[88%] max-w-md flex-col bg-white shadow-2xl overflow-x-hidden transition-transform duration-200 ${mounted ? "translate-x-0" : "translate-x-full"}`}>
+        className={`absolute inset-y-0 right-0 flex w-[80%] max-w-md flex-col bg-white shadow-2xl overflow-x-hidden transition-transform duration-200 ${mounted ? "translate-x-0" : "translate-x-full"}`}>
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <h2 className="text-base font-bold text-gray-900">New task</h2>
           <button onClick={onClose} className="rounded-lg p-2 hover:bg-gray-100"><X className="w-4 h-4 text-gray-400" /></button>
