@@ -14,9 +14,10 @@ const supabase = createClient(
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 
-const FROM = `HROne <${process.env.RESEND_FROM_EMAIL || "hello@northweblabs.com"}>`;
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "hello@northweblabs.com";
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendEmail(to: string, subject: string, html: string, fromName = "HROne"): Promise<boolean> {
+  const from = `${fromName} <${FROM_EMAIL}>`;
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY.startsWith("re_xxx")) {
     console.log(`[task-notify] RESEND_API_KEY missing/placeholder — would send to ${to}: ${subject}`);
     return false;
@@ -25,11 +26,11 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to, subject, html }),
+      body: JSON.stringify({ from, to, subject, html }),
     });
     const text = await res.text().catch(() => "");
-    if (!res.ok) { console.error(`[task-notify] Resend ${res.status} from=${FROM} to=${to}: ${text}`); return false; }
-    console.log(`[task-notify] Resend ok from=${FROM} to=${to}`);
+    if (!res.ok) { console.error(`[task-notify] Resend ${res.status} from=${from} to=${to}: ${text}`); return false; }
+    console.log(`[task-notify] Resend ok from=${from} to=${to}`);
     return true;
   } catch (e) {
     console.error(`[task-notify] Resend fetch failed to=${to}:`, e);
@@ -37,11 +38,11 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
   }
 }
 
-function emailHtml(title: string, body: string | null, link: string, base: string): string {
+function emailHtml(title: string, body: string | null, link: string, base: string, orgName: string): string {
   const url = `${base}${link?.startsWith("/") ? link : "/" + (link || "tasks")}`;
   return `
     <div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;padding:40px 20px">
-      <p style="font-size:18px;font-weight:700;color:#0f172a;margin-bottom:24px">HROne</p>
+      <p style="font-size:18px;font-weight:700;color:#0f172a;margin-bottom:24px">${esc(orgName)}</p>
       <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:28px">
         <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px">${esc(title)}</h2>
         ${body ? `<p style="color:#64748b;font-size:14px;line-height:1.5;margin:0 0 20px">${esc(body)}</p>` : ""}
@@ -97,11 +98,18 @@ export async function POST(request: Request) {
       delivered = true;
     }
 
+    // org name for branding (email heading + sender name)
+    let orgName = "HROne";
+    if (orgId) {
+      const { data: o } = await supabase.from("organizations").select("name").eq("id", orgId).maybeSingle();
+      if (o?.name) orgName = o.name;
+    }
+
     // email (best-effort)
     let emailed = false;
     if (to) {
       const base = process.env.NEXT_PUBLIC_APP_URL || "https://www.northweblabs.com";
-      emailed = await sendEmail(to, title, emailHtml(title, body, link, base));
+      emailed = await sendEmail(to, title, emailHtml(title, body, link, base, orgName), orgName);
     }
 
     return NextResponse.json({ success: true, delivered, emailed });

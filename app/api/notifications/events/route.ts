@@ -11,22 +11,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const FROM = `HROne <${process.env.RESEND_FROM_EMAIL || "hello@northweblabs.com"}>`;
+
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY.startsWith("re_xxx")) {
-    console.log(`[events-notify] Would send to ${to}: ${subject}`);
-    return true;
+    console.log(`[events-notify] RESEND_API_KEY missing/placeholder — would send to ${to}: ${subject}`);
+    return false;
   }
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from: `HROne <>`,
-      to,
-      subject,
-      html,
-    }),
-  });
-  return res.ok;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: FROM, to, subject, html }),
+    });
+    const text = await res.text().catch(() => "");
+    if (!res.ok) { console.error(`[events-notify] Resend ${res.status} to=${to}: ${text}`); return false; }
+    return true;
+  } catch (e) {
+    console.error(`[events-notify] Resend fetch failed to=${to}:`, e);
+    return false;
+  }
 }
 
 function birthdayEmailHtml(empName: string, orgName: string, isToday: boolean): string {
