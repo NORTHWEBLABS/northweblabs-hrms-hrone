@@ -14,7 +14,7 @@ const supabase = createClient(
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 
-const FROM = process.env.RESEND_FROM || "HROne <onboarding@resend.dev>";
+const FROM = `HROne <${process.env.RESEND_FROM_EMAIL || "hello@northweblabs.com"}>`;
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY.startsWith("re_xxx")) {
