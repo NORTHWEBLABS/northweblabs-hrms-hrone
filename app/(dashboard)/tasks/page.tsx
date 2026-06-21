@@ -11,7 +11,7 @@ import {
 import {
   Plus, X, Loader2, CheckCircle2, AlertCircle, Flag, Calendar, Clock,
   Search, LayoutGrid, Table as TableIcon, List as ListIcon, RotateCcw,
-  Play, Send, Check, Trash2, ChevronRight, User as UserIcon, Users, Palette,
+  Play, Send, Check, Trash2, ChevronRight, ChevronDown, User as UserIcon, Users, Palette,
   PanelLeft, BarChart3, Eye, EyeOff, AlertTriangle, Paperclip,
 } from "lucide-react";
 
@@ -372,6 +372,8 @@ export default function TasksPage() {
     logActivity(t.id, "started");
   };
   const submitTask = async (t: Task) => {
+    const cl = t.checklist ?? [];
+    if (cl.length > 0 && cl.some(c => !c.done)) { flash("Complete all checklist items before submitting", "error"); return; }
     const patch = { status: "submitted" as Status, submitted_at: nowIso(), submitted_by: myId };
     patchLocal(t.id, patch);
     await sb.from("tasks").update({ ...patch, updated_at: nowIso() }).eq("id", t.id);
@@ -795,11 +797,14 @@ function TatInput({ hours, setHours }: { hours: number; setHours: (h: number) =>
     <div className="flex gap-1.5">
       <input type="number" min={0} value={display || ""} onChange={e => { const v = Number(e.target.value) || 0; setHours(unit === "d" ? v * 24 : v); }}
         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200" placeholder="0" />
-      <select value={unit} onChange={e => { const u = e.target.value as "h" | "d"; setUnit(u); }}
-        className="px-2 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-        <option value="h">hours</option>
-        <option value="d">days</option>
-      </select>
+      <div className="relative">
+        <select value={unit} onChange={e => { const u = e.target.value as "h" | "d"; setUnit(u); }}
+          className="appearance-none pl-2 pr-7 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+          <option value="h">hours</option>
+          <option value="d">days</option>
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+      </div>
     </div>
   );
 }
@@ -835,15 +840,21 @@ function CreateModal(props: {
           <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Assignee</label>
-              <select value={assignee} onChange={e => setAssignee(e.target.value)} className={inputCls + " bg-white"}>
-                {assignOptions.map(e => <option key={e.id} value={e.id}>{e.id === myId ? `${e.name} (me)` : e.name}</option>)}
-              </select>
+              <div className="relative">
+                <select value={assignee} onChange={e => setAssignee(e.target.value)} className={inputCls + " bg-white appearance-none pr-8"}>
+                  {assignOptions.map(e => <option key={e.id} value={e.id}>{e.id === myId ? `${e.name} (me)` : e.name}</option>)}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              </div>
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Priority</label>
-              <select value={priority} onChange={e => setPriority(e.target.value as Priority)} className={inputCls + " bg-white"}>
-                {PRIORITIES.map(p => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-              </select>
+              <div className="relative">
+                <select value={priority} onChange={e => setPriority(e.target.value as Priority)} className={inputCls + " bg-white appearance-none pr-8"}>
+                  {PRIORITIES.map(p => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              </div>
             </div>
           </div>
           <div>
@@ -926,7 +937,9 @@ function TaskDrawer(props: {
   const badge = tatBadge(t);
   const checklist = t.checklist ?? [];
   const checked = checklist.filter(c => c.done).length;
+  const allDone = checklist.length === 0 || checked === checklist.length;
   const [commentText, setCommentText] = useState("");
+  const [submitWarn, setSubmitWarn] = useState(false);
   const [showLink, setShowLink] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLabel, setLinkLabel] = useState("");
@@ -1080,8 +1093,11 @@ function TaskDrawer(props: {
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
+              {t.status === "inprogress" && isAssignee && !allDone && submitWarn && (
+                <p className="w-full flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700"><AlertCircle className="w-3.5 h-3.5" />Check off all {checklist.length} checklist items before submitting.</p>
+              )}
               {t.status === "todo" && isAssignee && <button onClick={onStart} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-sky-600 text-white text-sm font-semibold rounded-xl hover:bg-sky-700"><Play className="w-4 h-4" />Start</button>}
-              {t.status === "inprogress" && isAssignee && <button onClick={onSubmit} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-amber-500 text-white text-sm font-semibold rounded-xl hover:bg-amber-600"><Send className="w-4 h-4" />Submit for review</button>}
+              {t.status === "inprogress" && isAssignee && <button onClick={() => { if (!allDone) { setSubmitWarn(true); return; } onSubmit(); }} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-white text-sm font-semibold rounded-xl ${allDone ? "bg-amber-500 hover:bg-amber-600" : "bg-amber-300 cursor-not-allowed"}`}><Send className="w-4 h-4" />Submit for review</button>}
               {t.status === "submitted" && canVerify && (
                 <>
                   <button onClick={onVerify} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700"><Check className="w-4 h-4" />Verify &amp; close</button>
