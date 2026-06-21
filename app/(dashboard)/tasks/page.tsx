@@ -556,13 +556,13 @@ export default function TasksPage() {
       <div className="flex-1 min-w-0 p-4 sm:p-5">
     <div className="max-w-7xl mx-auto">
       {/* header — white toolbar strip */}
-      <div className="bg-white/95 backdrop-blur rounded-2xl border border-gray-200/80 shadow-sm px-2.5 py-2 mb-4 flex flex-wrap items-center gap-2">
+      <div className="bg-white/95 backdrop-blur rounded-2xl border border-gray-200/80 shadow-sm px-2.5 py-2 mb-4 flex flex-wrap items-center justify-center sm:justify-start gap-2">
         {/* scope toggle */}
         {canSeeTeam && (
-          <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
+          <div className="w-full sm:w-auto flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
             {([["mine", "My tasks", UserIcon], ["team", "Team", Users]] as const).map(([id, label, Icon]) => (
               <button key={id} onClick={() => setScope(id)}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${scope === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+                className={`flex flex-1 sm:flex-none justify-center items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${scope === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
                 <Icon className="w-3.5 h-3.5" />{label}
               </button>
             ))}
@@ -570,10 +570,10 @@ export default function TasksPage() {
         )}
 
         {/* view tabs */}
-        <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
+        <div className="w-full sm:w-auto flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5">
           {([["board", "Board", LayoutGrid], ["table", "Table", TableIcon]] as const).map(([id, label, Icon]) => (
             <button key={id} onClick={() => setView(id)}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${view === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+              className={`flex flex-1 sm:flex-none justify-center items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${view === id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
               <Icon className="w-3.5 h-3.5" />{label}
             </button>
           ))}
@@ -804,9 +804,9 @@ function CreateModal(props: {
   const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200";
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
       <div onClick={e => e.stopPropagation()}
-        className={`fixed inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-2xl overflow-x-hidden transition-transform duration-200 ${mounted ? "translate-x-0" : "translate-x-full"}`}>
+        className={`absolute inset-y-0 right-0 flex w-[88%] max-w-md flex-col bg-white shadow-2xl overflow-x-hidden transition-transform duration-200 ${mounted ? "translate-x-0" : "translate-x-full"}`}>
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <h2 className="text-base font-bold text-gray-900">New task</h2>
           <button onClick={onClose} className="rounded-lg p-2 hover:bg-gray-100"><X className="w-4 h-4 text-gray-400" /></button>
