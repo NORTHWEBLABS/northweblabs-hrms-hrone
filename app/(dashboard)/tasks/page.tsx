@@ -333,15 +333,13 @@ export default function TasksPage() {
   const notify = useCallback(async (userId: string | null | undefined, n: { title: string; body?: string | null; type?: string; link?: string }) => {
     if (!userId || userId === myId) return;
     try {
-      await sb.from("notifications").insert({
-        user_id: userId,
-        title: n.title,
-        body: n.body ?? null,
-        type: n.type ?? "info",
-        link: n.link ?? "/tasks",
+      await fetch("/api/tasks/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, title: n.title, body: n.body ?? null, type: n.type ?? "info", link: n.link ?? "/tasks" }),
       });
     } catch { /* non-blocking */ }
-  }, [sb, myId]);
+  }, [myId]);
 
   const createTask = async (input: {
     title: string; description: string; assigneeId: string; tatHours: number; priority: Priority; status: Status; checklist: ChecklistItem[];
