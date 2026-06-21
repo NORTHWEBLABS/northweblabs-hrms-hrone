@@ -14,17 +14,27 @@ const supabase = createClient(
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 
+const FROM = process.env.RESEND_FROM || "HROne <onboarding@resend.dev>";
+
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY.startsWith("re_xxx")) {
-    console.log(`[task-notify] Would send to ${to}: ${subject}`);
-    return true;
+    console.log(`[task-notify] RESEND_API_KEY missing/placeholder — would send to ${to}: ${subject}`);
+    return false;
   }
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: "HROne <onboarding@resend.dev>", to, subject, html }),
-  });
-  return res.ok;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: FROM, to, subject, html }),
+    });
+    const text = await res.text().catch(() => "");
+    if (!res.ok) { console.error(`[task-notify] Resend ${res.status} from=${FROM} to=${to}: ${text}`); return false; }
+    console.log(`[task-notify] Resend ok from=${FROM} to=${to}`);
+    return true;
+  } catch (e) {
+    console.error(`[task-notify] Resend fetch failed to=${to}:`, e);
+    return false;
+  }
 }
 
 function emailHtml(title: string, body: string | null, link: string, base: string): string {
