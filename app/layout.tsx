@@ -15,9 +15,9 @@ export const metadata: Metadata = {
   title: "NorthWebLabs",
   description: "WhatsApp-first HR & Payroll OS for Indian small businesses",
   icons: {
-    icon: "/logo-nwl.png",
-    shortcut: "/logo-nwl.png",
-    apple: "/logo-nwl.png",
+    icon: "/apple-touch-icon.png",
+    shortcut: "/apple-touch-icon.png",
+    apple: "/apple-touch-icon.png",
   },
   openGraph: {
     title: "NorthWebLabs",
