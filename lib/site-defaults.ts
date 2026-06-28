@@ -26,18 +26,18 @@ export const DEFAULT_SECTIONS: Block[] = [
           { label: "Start free trial", href: "/signup", style: "primary", arrow: true },
           { label: "Book a demo", href: "/demo", style: "outline" },
         ],
-        people: {
-          title: "People overview", period: "MAY 2026",
-          stats: [
-            { label: "Headcount", num: "247", sub: "+12", up: true },
-            { label: "Active", num: "231", sub: "93%" },
-            { label: "Onboarding", num: "7", sub: "+4", up: true },
-          ],
-          chart: [
-            { m: "Nov", h: 46 }, { m: "Dec", h: 60 }, { m: "Jan", h: 54 }, { m: "Feb", h: 76 },
-            { m: "Mar", h: 66 }, { m: "Apr", h: 88 }, { m: "May", h: 106 },
-          ],
-        },
+      },
+      people: {
+        title: "People overview", period: "MAY 2026",
+        stats: [
+          { label: "Headcount", num: "247", sub: "+12", up: true },
+          { label: "Active", num: "231", sub: "93%" },
+          { label: "Onboarding", num: "7", sub: "+4", up: true },
+        ],
+        chart: [
+          { m: "Nov", h: 46 }, { m: "Dec", h: 60 }, { m: "Jan", h: 54 }, { m: "Feb", h: 76 },
+          { m: "Mar", h: 66 }, { m: "Apr", h: 88 }, { m: "May", h: 106 },
+        ],
       },
       mobile: {
         pill: "Trusted by 1,200+ people teams",
