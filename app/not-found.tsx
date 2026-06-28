@@ -3,6 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Inter_Tight, JetBrains_Mono } from 'next/font/google';
+import {
+  LayoutDashboard,
+  CalendarCheck,
+  User,
+  ListChecks,
+  Wallet,
+  Users,
+  LifeBuoy,
+  Search,
+  Sun,
+  Moon,
+  type LucideIcon,
+} from 'lucide-react';
 
 const interTight = Inter_Tight({
   subsets: ['latin'],
@@ -15,20 +28,17 @@ const jetMono = JetBrains_Mono({
   variable: '--font-jet-mono',
 });
 
-type Cmd = { label: string; path: string; key: string; icon: string };
+type Cmd = { label: string; path: string; key: string; Icon: LucideIcon };
 
 const COMMANDS: Cmd[] = [
-  { label: 'Go to dashboard', path: '/dashboard', key: 'D', icon: 'M3 13h8V3H3zM13 21h8v-6h-8zM13 3v6h8V3zM3 21h8v-4H3z' },
-  { label: 'My attendance', path: '/my-attendance', key: 'A', icon: 'M8 2v4M16 2v4M3 10h18M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M9 16l2 2 4-4' },
-  { label: 'My profile', path: '/me', key: 'M', icon: 'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8' },
-  { label: 'My tasks', path: '/tasks', key: 'T', icon: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
-  { label: 'Run payroll', path: '/payroll', key: 'P', icon: 'M3 6h18v13H3zM3 11h18M7 15h4' },
-  { label: 'View employees', path: '/employees', key: 'E', icon: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
-  { label: 'Contact support', path: '/support', key: 'S', icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z' },
+  { label: 'Go to dashboard', path: '/dashboard', key: 'D', Icon: LayoutDashboard },
+  { label: 'My attendance', path: '/my-attendance', key: 'A', Icon: CalendarCheck },
+  { label: 'My profile', path: '/me', key: 'M', Icon: User },
+  { label: 'My tasks', path: '/tasks', key: 'T', Icon: ListChecks },
+  { label: 'Run payroll', path: '/payroll', key: 'P', Icon: Wallet },
+  { label: 'View employees', path: '/employees', key: 'E', Icon: Users },
+  { label: 'Contact support', path: '/support', key: 'S', Icon: LifeBuoy },
 ];
-
-const SUN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>';
-const MOON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0A1628" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14a8 8 0 1 1-9-11 6 6 0 0 0 9 11z"/></svg>';
 
 const CSS = `
 .nwl404 { --blue:#1E5BFF; --blue2:#5B86FF; }
@@ -182,12 +192,14 @@ export default function NotFound() {
         </span>
         <div className="topbar-right">
           <span className="url">northweblabs.com</span>
-          <button
-            className="switch"
-            aria-label="Toggle theme"
-            onClick={() => setDark((d) => !d)}
-          >
-            <span className="knob" dangerouslySetInnerHTML={{ __html: dark ? SUN : MOON }} />
+          <button className="switch" aria-label="Toggle theme" onClick={() => setDark((d) => !d)}>
+            <span className="knob">
+              {dark ? (
+                <Sun size={15} strokeWidth={2} color="#B45309" />
+              ) : (
+                <Moon size={15} strokeWidth={2} color="#0A1628" />
+              )}
+            </span>
           </button>
         </div>
       </div>
@@ -207,10 +219,7 @@ export default function NotFound() {
 
         <div className="palette">
           <div className="palette-search">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted2)" strokeWidth="1.8" strokeLinecap="round">
-              <circle cx="11" cy="11" r="6" />
-              <path d="M16 16l4 4" />
-            </svg>
+            <Search size={18} strokeWidth={1.8} color="var(--muted2)" />
             <input
               ref={inputRef}
               autoFocus
@@ -229,23 +238,24 @@ export default function NotFound() {
             {filtered.length === 0 ? (
               <div className="empty">No commands match &quot;{q}&quot;. Try “payroll” or “tasks”.</div>
             ) : (
-              filtered.map((c, i) => (
-                <div
-                  key={c.path}
-                  className={`cmd ${i === sel ? 'sel' : ''}`}
-                  onMouseEnter={() => setSel(i)}
-                  onClick={() => go(c)}
-                >
-                  <span className="cmd-icon">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d={c.icon} />
-                    </svg>
-                  </span>
-                  <span className="cmd-label">{c.label}</span>
-                  <span className="cmd-path">{c.path}</span>
-                  <kbd>{c.key}</kbd>
-                </div>
-              ))
+              filtered.map((c, i) => {
+                const Icon = c.Icon;
+                return (
+                  <div
+                    key={c.path}
+                    className={`cmd ${i === sel ? 'sel' : ''}`}
+                    onMouseEnter={() => setSel(i)}
+                    onClick={() => go(c)}
+                  >
+                    <span className="cmd-icon">
+                      <Icon size={16} strokeWidth={1.8} />
+                    </span>
+                    <span className="cmd-label">{c.label}</span>
+                    <span className="cmd-path">{c.path}</span>
+                    <kbd>{c.key}</kbd>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
