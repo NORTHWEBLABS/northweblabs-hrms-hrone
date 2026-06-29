@@ -74,7 +74,7 @@ export default function AdminShell({ active, title, children }: { active: Key; t
           <button onClick={() => setOpen(true)} className="lg:hidden p-2 -ml-2 text-slate-500"><Menu className="w-5 h-5" /></button>
           <h1 className="text-base font-bold text-slate-900">{title || "Admin"}</h1>
         </header>
-        <main className="p-4 sm:p-6 max-w-6xl">{children}</main>
+        <main className="p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );

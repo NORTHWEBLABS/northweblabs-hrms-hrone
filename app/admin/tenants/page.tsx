@@ -52,7 +52,7 @@ export default function TenantsPage() {
   const filtered = (tenants || []).filter((t) => t.name.toLowerCase().includes(q.toLowerCase()));
 
   return (
-    <>
+    <div className="mx-auto w-full max-w-[1100px]">
       <div className="mb-4 relative max-w-sm">
         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search organizations…"
@@ -139,6 +139,6 @@ export default function TenantsPage() {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
