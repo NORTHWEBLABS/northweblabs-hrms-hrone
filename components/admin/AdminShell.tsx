@@ -3,15 +3,16 @@
 import { useState } from "react";
 import {
   LayoutDashboard, Building2, Palette, Mail, CreditCard, ScrollText,
-  Menu, X, ArrowLeft, ShieldCheck,
+  Menu, X, ArrowLeft, ShieldCheck, Gamepad2,
 } from "lucide-react";
 
-type Key = "overview" | "tenants" | "site" | "email" | "billing" | "audit";
+type Key = "overview" | "tenants" | "site" | "puzzles" | "email" | "billing" | "audit";
 
 const NAV: { key: Key; label: string; href: string; icon: any; soon?: boolean }[] = [
   { key: "overview", label: "Overview", href: "/admin", icon: LayoutDashboard },
   { key: "tenants", label: "Tenants", href: "/admin/tenants", icon: Building2 },
   { key: "site", label: "Site editor", href: "/admin/site", icon: Palette },
+  { key: "puzzles", label: "Puzzles", href: "/admin/puzzles", icon: Gamepad2 },
   { key: "email", label: "Email templates", href: "#", icon: Mail, soon: true },
   { key: "billing", label: "Billing & plans", href: "#", icon: CreditCard, soon: true },
   { key: "audit", label: "Audit log", href: "#", icon: ScrollText, soon: true },
