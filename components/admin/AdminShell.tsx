@@ -82,7 +82,7 @@ export default function AdminShell({ active, title, children }: { active: Key; t
 
 export function Restricted() {
   return (
-    <div className="min-h-screen grid place-items-center bg-slate-50 p-6">
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-50 p-6">
       <div className="text-center max-w-sm">
         <div className="w-12 h-12 bg-slate-100 rounded-2xl grid place-items-center mx-auto mb-4"><ShieldCheck className="w-6 h-6 text-slate-400" /></div>
         <h1 className="text-lg font-bold text-slate-900 mb-1">Restricted</h1>
