@@ -7,10 +7,11 @@ import {
 } from "lucide-react";
 import { PUZZLES } from "@/lib/puzzles";
 
-export type Game = "zip" | "queens" | "2048" | "lights" | "riddle";
+export type Game = "zip" | "queens" | "patch" | "2048" | "lights" | "riddle";
 export const GAMES: { key: Game; label: string }[] = [
   { key: "zip", label: "Zip" },
   { key: "queens", label: "Queens" },
+  { key: "patch", label: "Patch" },
   { key: "2048", label: "2048" },
   { key: "lights", label: "Lights" },
   { key: "riddle", label: "Riddle" },
@@ -252,10 +253,97 @@ export function Riddle() {
   );
 }
 
+/* ============================ PATCH (shape fill) ============================ */
+const PATCH_COLORS = ["#fca5a5", "#86efac", "#93c5fd", "#fcd34d", "#c4b5fd", "#fdba74", "#67e8f9"];
+function genPatch() {
+  const N = 5, k = 5;
+  const region = new Array(N * N).fill(-1);
+  const neighbors = (i: number) => { const r = Math.floor(i / N), c = i % N; const o: number[] = []; if (r > 0) o.push(i - N); if (r < N - 1) o.push(i + N); if (c > 0) o.push(i - 1); if (c < N - 1) o.push(i + 1); return o; };
+  const seeds: number[] = [];
+  while (seeds.length < k) { const i = Math.floor(Math.random() * N * N); if (!seeds.includes(i)) seeds.push(i); }
+  seeds.forEach((s, id) => (region[s] = id));
+  let remaining = N * N - k, guard = 0;
+  while (remaining > 0 && guard++ < 100000) {
+    const cands: number[] = [];
+    for (let i = 0; i < N * N; i++) if (region[i] === -1 && neighbors(i).some((nb) => region[nb] !== -1)) cands.push(i);
+    if (!cands.length) break;
+    const cell = cands[Math.floor(Math.random() * cands.length)];
+    const an = neighbors(cell).filter((nb) => region[nb] !== -1);
+    region[cell] = region[an[Math.floor(Math.random() * an.length)]];
+    remaining--;
+  }
+  for (let i = 0; i < N * N; i++) if (region[i] === -1) { const nb = neighbors(i).find((x) => region[x] !== -1); region[i] = nb !== undefined ? region[nb] : 0; }
+  const pieces: { id: number; cells: { dr: number; dc: number }[]; w: number; h: number }[] = [];
+  for (let id = 0; id < k; id++) {
+    const cells: { r: number; c: number }[] = [];
+    for (let i = 0; i < N * N; i++) if (region[i] === id) cells.push({ r: Math.floor(i / N), c: i % N });
+    if (!cells.length) continue;
+    const minR = Math.min(...cells.map((x) => x.r)), minC = Math.min(...cells.map((x) => x.c));
+    const rel = cells.map((x) => ({ dr: x.r - minR, dc: x.c - minC }));
+    pieces.push({ id, cells: rel, h: Math.max(...rel.map((x) => x.dr)) + 1, w: Math.max(...rel.map((x) => x.dc)) + 1 });
+  }
+  return { N, pieces };
+}
+export function Patch({ cell = 48 }: { cell?: number }) {
+  const [puz, setPuz] = useState(genPatch);
+  const { N, pieces } = puz;
+  const [board, setBoard] = useState<(number | null)[]>(Array(N * N).fill(null));
+  const [placed, setPlaced] = useState<Record<number, boolean>>({});
+  const [sel, setSel] = useState<number | null>(null);
+  const reset = () => { setBoard(Array(N * N).fill(null)); setPlaced({}); setSel(null); };
+  const fresh = () => { setPuz(genPatch()); setBoard(Array(N * N).fill(null)); setPlaced({}); setSel(null); };
+  const place = (cellIdx: number) => {
+    if (board[cellIdx] !== null) { const id = board[cellIdx]; setBoard((b) => b.map((v) => (v === id ? null : v))); setPlaced((p) => ({ ...p, [id as number]: false })); return; }
+    if (sel === null) return;
+    const piece = pieces.find((p) => p.id === sel); if (!piece || placed[sel]) return;
+    const r = Math.floor(cellIdx / N), c = cellIdx % N;
+    const targets = piece.cells.map((d) => ({ r: r + d.dr, c: c + d.dc }));
+    if (targets.some((t) => t.r < 0 || t.r >= N || t.c < 0 || t.c >= N)) return;
+    const idxs = targets.map((t) => t.r * N + t.c);
+    if (idxs.some((i) => board[i] !== null)) return;
+    setBoard((b) => { const nb = b.slice(); idxs.forEach((i) => (nb[i] = sel)); return nb; });
+    setPlaced((p) => ({ ...p, [sel]: true }));
+    setSel(null);
+  };
+  const won = board.every((v) => v !== null);
+  return (
+    <div className="flex flex-col items-center">
+      <p className="text-xs text-slate-500 mb-3 text-center">Fit every <b>patch</b> into the board — no gaps, no overlaps. Pick a patch, tap a square to drop its top-left. Tap a placed patch to lift it.</p>
+      <div className="grid rounded-xl overflow-hidden border-2 border-slate-300" style={{ gridTemplateColumns: `repeat(${N}, ${cell}px)` }}>
+        {Array.from({ length: N * N }, (_, i) => {
+          const id = board[i];
+          return <button key={i} onClick={() => place(i)} className="border border-white/70" style={{ width: cell, height: cell, background: id === null ? "#f8fafc" : PATCH_COLORS[id % PATCH_COLORS.length] }} />;
+        })}
+      </div>
+      {won ? <div className="mt-3 flex items-center gap-1.5 text-emerald-600 font-bold text-sm"><Trophy className="w-4 h-4" />Filled!</div> : <p className="mt-3 text-xs text-slate-400">{board.filter((v) => v !== null).length}/{N * N} filled</p>}
+      {/* tray */}
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        {pieces.filter((p) => !placed[p.id]).map((p) => (
+          <button key={p.id} onClick={() => setSel(p.id)} className={`p-1.5 rounded-lg border-2 transition ${sel === p.id ? "border-indigo-500 bg-indigo-50" : "border-slate-200 hover:border-slate-300"}`}>
+            <div className="grid gap-0.5" style={{ gridTemplateColumns: `repeat(${p.w}, 14px)` }}>
+              {Array.from({ length: p.w * p.h }, (_, gi) => {
+                const dr = Math.floor(gi / p.w), dc = gi % p.w;
+                const on = p.cells.some((cl) => cl.dr === dr && cl.dc === dc);
+                return <div key={gi} className="rounded-sm" style={{ width: 14, height: 14, background: on ? PATCH_COLORS[p.id % PATCH_COLORS.length] : "transparent" }} />;
+              })}
+            </div>
+          </button>
+        ))}
+        {pieces.every((p) => placed[p.id]) && !won && <span className="text-xs text-slate-400">All patches placed</span>}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <button onClick={reset} className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Reset</button>
+        <button onClick={fresh} className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" />New</button>
+      </div>
+    </div>
+  );
+}
+
 /* ============================ SHARED VIEW ============================ */
 export function GameView({ game }: { game: Game }) {
   if (game === "zip") return <Zip />;
   if (game === "queens") return <Queens />;
+  if (game === "patch") return <Patch />;
   if (game === "2048") return <G2048 />;
   if (game === "lights") return <Lights />;
   return <Riddle />;
@@ -269,7 +357,7 @@ export default function GamesPanel() {
     return (
       <div className="shrink-0 self-start sticky top-6">
         <button onClick={() => setOpen(true)} className="flex flex-col items-center gap-2 px-2.5 py-4 rounded-2xl bg-gradient-to-b from-indigo-600 to-violet-600 text-white shadow-lg hover:shadow-xl transition">
-          <Gamepad2 className="w-5 h-5" /><span className="text-xs font-bold tracking-wide" style={{ writingMode: "vertical-rl" }}>Games</span>
+          <Gamepad2 className="w-5 h-5" /><span className="text-xs font-bold tracking-wide" style={{ writingMode: "vertical-rl" }}>Puzzles</span>
         </button>
       </div>
     );
@@ -281,7 +369,7 @@ export default function GamesPanel() {
         <div className="h-full bg-slate-50 rounded-[1.6rem] flex flex-col overflow-hidden">
           <div className="px-4 pt-6 pb-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white">
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2"><Gamepad2 className="w-5 h-5" /><span className="text-sm font-bold">Game break</span></div>
+              <div className="flex items-center gap-2"><Gamepad2 className="w-5 h-5" /><span className="text-sm font-bold">Puzzles</span></div>
               <button onClick={() => setOpen(false)} className="w-7 h-7 grid place-items-center rounded-lg bg-white/15 hover:bg-white/25"><X className="w-4 h-4" /></button>
             </div>
             <div className="flex gap-1">

@@ -3,18 +3,20 @@
 import { useState } from "react";
 import {
   LayoutDashboard, Building2, Palette, Mail, CreditCard, ScrollText,
-  Menu, X, ArrowLeft, ShieldCheck, Gamepad2,
+  Menu, X, ArrowLeft, ShieldCheck, BarChart3, Megaphone, Wrench,
 } from "lucide-react";
 
-type Key = "overview" | "tenants" | "site" | "puzzles" | "email" | "billing" | "audit";
+type Key = "overview" | "tenants" | "analytics" | "site" | "billing" | "announcements" | "maintenance" | "email" | "audit";
 
 const NAV: { key: Key; label: string; href: string; icon: any; soon?: boolean }[] = [
   { key: "overview", label: "Overview", href: "/admin", icon: LayoutDashboard },
   { key: "tenants", label: "Tenants", href: "/admin/tenants", icon: Building2 },
+  { key: "analytics", label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
   { key: "site", label: "Site editor", href: "/admin/site", icon: Palette },
-  { key: "puzzles", label: "Puzzles", href: "/admin/puzzles", icon: Gamepad2 },
+  { key: "billing", label: "Billing & plans", href: "/admin/billing", icon: CreditCard },
+  { key: "announcements", label: "Announcements", href: "/admin/announcements", icon: Megaphone },
+  { key: "maintenance", label: "Maintenance", href: "/admin/maintenance", icon: Wrench },
   { key: "email", label: "Email templates", href: "#", icon: Mail, soon: true },
-  { key: "billing", label: "Billing & plans", href: "#", icon: CreditCard, soon: true },
   { key: "audit", label: "Audit log", href: "#", icon: ScrollText, soon: true },
 ];
 
