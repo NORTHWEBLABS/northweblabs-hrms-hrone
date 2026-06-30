@@ -12,6 +12,7 @@
     "@ai-sdk/gateway": "^3.0.130",
     "@ai-sdk/google": "^3.0.82",
     "@ai-sdk/react": "^3.0.206",
+    "@monaco-editor/react": "^4.7.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.105.3",
     "@vercel/analytics": "^2.0.1",

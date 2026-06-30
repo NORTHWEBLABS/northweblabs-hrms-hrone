@@ -13,6 +13,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const active =
     p.startsWith("/admin/tenants") ? "tenants" :
     p.startsWith("/admin/analytics") ? "analytics" :
+    p.startsWith("/admin/code") ? "code" :
     p.startsWith("/admin/billing") ? "billing" :
     p.startsWith("/admin/announcements") ? "announcements" :
     p.startsWith("/admin/maintenance") ? "maintenance" :
@@ -20,6 +21,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const title =
     active === "tenants" ? "Tenants" :
     active === "analytics" ? "Analytics" :
+    active === "code" ? "Code editor" :
     active === "billing" ? "Billing & plans" :
     active === "announcements" ? "Announcements" :
     active === "maintenance" ? "Maintenance" :

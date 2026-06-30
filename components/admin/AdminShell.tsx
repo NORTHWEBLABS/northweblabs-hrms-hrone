@@ -3,16 +3,17 @@
 import { useState } from "react";
 import {
   LayoutDashboard, Building2, Palette, Mail, CreditCard, ScrollText,
-  Menu, X, ArrowLeft, ShieldCheck, BarChart3, Megaphone, Wrench,
+  Menu, X, ArrowLeft, ShieldCheck, BarChart3, Megaphone, Wrench, Code2,
 } from "lucide-react";
 
-type Key = "overview" | "tenants" | "analytics" | "site" | "billing" | "announcements" | "maintenance" | "email" | "audit";
+type Key = "overview" | "tenants" | "analytics" | "site" | "code" | "billing" | "announcements" | "maintenance" | "email" | "audit";
 
 const NAV: { key: Key; label: string; href: string; icon: any; soon?: boolean }[] = [
   { key: "overview", label: "Overview", href: "/admin", icon: LayoutDashboard },
   { key: "tenants", label: "Tenants", href: "/admin/tenants", icon: Building2 },
   { key: "analytics", label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
   { key: "site", label: "Site editor", href: "/admin/site", icon: Palette },
+  { key: "code", label: "Code editor", href: "/admin/code", icon: Code2 },
   { key: "billing", label: "Billing & plans", href: "/admin/billing", icon: CreditCard },
   { key: "announcements", label: "Announcements", href: "/admin/announcements", icon: Megaphone },
   { key: "maintenance", label: "Maintenance", href: "/admin/maintenance", icon: Wrench },

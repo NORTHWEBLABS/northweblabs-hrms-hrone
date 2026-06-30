@@ -7,6 +7,8 @@ import {
   GripVertical, Lock, ExternalLink, Monitor, Tablet, Smartphone, Pipette,
 } from "lucide-react";
 import { BLOCK_TYPES, SECTION_LIBRARY, newBlock, blockLabel, type Field } from "@/lib/site-schema";
+import { parseTemplate, defaultsOf } from "@/lib/liquid";
+import { Code2 } from "lucide-react";
 
 type Doc = { theme: any; header: any; sections: any[] };
 type Target = { kind: "section"; id: string } | { kind: "theme" } | { kind: "header" } | null;
@@ -166,35 +168,38 @@ function Accordion({ items }: { items: { name: string; body: React.ReactNode }[]
   );
 }
 
-/* ---------------- custom code section editor ---------------- */
-const codeCls = "w-full px-3 py-2.5 bg-slate-900 text-slate-100 border border-slate-700 rounded-lg text-[12px] font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500/40 resize-y";
+/* ---------------- custom section inspector (schema-driven) ---------------- */
+function SettingField({ s, value, onChange }: { s: any; value: any; onChange: (v: any) => void }) {
+  const t = s.type;
+  if (t === "checkbox") return (
+    <label className="flex items-center justify-between py-1"><span className="text-sm text-slate-600">{s.label || s.id}</span>
+      <button onClick={() => onChange(!value)} className={`relative w-10 h-5.5 rounded-full transition ${value ? "bg-indigo-600" : "bg-slate-300"}`} style={{ height: 22, width: 40 }}><span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition ${value ? "translate-x-[18px]" : ""}`} /></button>
+    </label>
+  );
+  if (t === "select") return (<div><Lbl>{s.label || s.id}</Lbl><select className={inputCls} value={value ?? ""} onChange={(e) => onChange(e.target.value)}>{(s.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label || o.value}</option>)}</select></div>);
+  if (t === "color") return (<div><Lbl>{s.label || s.id}</Lbl><div className="flex gap-2"><input type="color" value={/^#[0-9a-fA-F]{6}$/.test(value || "") ? value : "#000000"} onChange={(e) => onChange(e.target.value)} className="w-9 h-9 rounded-lg border border-slate-200 p-0.5" /><input className={inputCls} value={value ?? ""} onChange={(e) => onChange(e.target.value)} /></div></div>);
+  if (t === "number") return (<div><Lbl>{s.label || s.id}</Lbl><input type="number" className={inputCls} value={value ?? ""} onChange={(e) => onChange(e.target.value)} /></div>);
+  if (t === "textarea" || t === "richtext") return (<div><Lbl>{s.label || s.id}</Lbl><textarea rows={3} className={inputCls + " resize-y"} value={value ?? ""} onChange={(e) => onChange(e.target.value)} /></div>);
+  return (<div><Lbl>{s.label || s.id}</Lbl><input className={inputCls} value={value ?? ""} onChange={(e) => onChange(e.target.value)} />{s.info && <p className="text-[10px] text-slate-400 mt-0.5">{s.info}</p>}</div>);
+}
 function CustomEditor({ data, onChange }: { data: any; onChange: (path: string, v: any) => void }) {
-  const html = String(data?.html || "");
-  const css = String(data?.css || "");
-  const fields = data?.fields || {};
-  const names = Array.from(new Set([...html.matchAll(/\{\{\s*([\w-]+)\s*\}\}/g)].map((m) => m[1])));
+  const template = String(data?.template || "");
+  const { schema, error } = parseTemplate(template);
+  const settings = schema?.settings || [];
+  const defs = defaultsOf(schema);
+  const overrides = data?.settings || {};
   return (
-    <Accordion items={[
-      {
-        name: "Fields",
-        body: names.length === 0
-          ? <p className="text-xs text-slate-400">Add <code className="px-1 bg-slate-100 rounded">{"{{placeholder}}"}</code> tokens in your HTML — they appear here as editable fields.</p>
-          : <>
-            <p className="text-[11px] text-slate-400 mb-1">Imported from your code.</p>
-            {names.map((n) => (
-              <div key={n}><Lbl>{n}</Lbl><input className={inputCls} value={fields[n] ?? ""} onChange={(e) => onChange(`fields.${n}`, e.target.value)} /></div>
-            ))}
-          </>,
-      },
-      {
-        name: "HTML",
-        body: <><textarea spellCheck={false} rows={12} className={codeCls} value={html} onChange={(e) => onChange("html", e.target.value)} /><p className="text-[10px] text-slate-400 mt-1">Any HTML. Use {"{{name}}"} for editable fields.</p></>,
-      },
-      {
-        name: "CSS",
-        body: <><textarea spellCheck={false} rows={8} className={codeCls} value={css} onChange={(e) => onChange("css", e.target.value)} placeholder=".my-class { color: #4f46e5; }" /><p className="text-[10px] text-slate-400 mt-1">Optional. Scope your classes to avoid clashes.</p></>,
-      },
-    ]} />
+    <div className="space-y-3 py-2">
+      <a href="/admin/code" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1.5 w-full py-2 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50">
+        <Code2 className="w-3.5 h-3.5" />Edit code in Code editor
+      </a>
+      {error && <p className="text-xs text-rose-500">{error}</p>}
+      {settings.length === 0 ? (
+        <p className="text-xs text-slate-400">No <code className="px-1 bg-slate-100 rounded">{"{% schema %}"}</code> settings found. Add some in the Code editor.</p>
+      ) : (
+        settings.map((s: any) => <SettingField key={s.id} s={s} value={overrides[s.id] ?? defs[s.id]} onChange={(v) => onChange(`settings.${s.id}`, v)} />)
+      )}
+    </div>
   );
 }
 
