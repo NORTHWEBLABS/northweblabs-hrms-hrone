@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { BLOCK_TYPES, SECTION_LIBRARY, newBlock, blockLabel, type Field } from "@/lib/site-schema";
 import { parseTemplate, defaultsOf } from "@/lib/liquid";
-import { Code2 } from "lucide-react";
+import { Code2, ArrowLeft } from "lucide-react";
 
 type Doc = { theme: any; header: any; sections: any[] };
 type Target = { kind: "section"; id: string } | { kind: "theme" } | { kind: "header" } | null;
@@ -190,8 +190,8 @@ function CustomEditor({ data, onChange }: { data: any; onChange: (path: string, 
   const overrides = data?.settings || {};
   return (
     <div className="space-y-3 py-2">
-      <a href="/admin/code" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1.5 w-full py-2 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50">
-        <Code2 className="w-3.5 h-3.5" />Edit code in Code editor
+      <a href={data?.file ? `/admin/code?file=${encodeURIComponent(data.file)}` : "/admin/code"} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1.5 w-full py-2 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50">
+        <Code2 className="w-3.5 h-3.5" />{data?.file ? `Edit ${data.file}` : "Open Code editor"}
       </a>
       {error && <p className="text-xs text-rose-500">{error}</p>}
       {settings.length === 0 ? (
@@ -342,6 +342,7 @@ export default function SiteEditor() {
       {/* top bar */}
       <header className="h-14 shrink-0 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-4 gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
+          <a href="/admin" className="w-9 h-9 grid place-items-center rounded-lg text-slate-500 hover:bg-slate-100 shrink-0" title="Back to console"><ArrowLeft className="w-4 h-4" /></a>
           <span className="w-7 h-7 rounded-lg bg-indigo-600 text-white grid place-items-center text-xs font-bold shrink-0">N</span>
           <div className="text-sm font-bold truncate hidden sm:block">Site editor</div>
         </div>
