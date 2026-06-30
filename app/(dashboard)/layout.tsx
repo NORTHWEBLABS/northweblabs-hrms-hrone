@@ -103,7 +103,6 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <NoticeBanner />
       <Sidebar
         orgName={orgName}
         orgId={orgId}
@@ -114,7 +113,7 @@ export default async function DashboardLayout({
       <AppContextMenu>
         <main className="flex-1 min-w-0 overflow-y-auto">
           <MobileTopBar orgName={orgName} userInitials={userInitials} />
-          <div className="p-5">{children}</div>
+          <div className="p-5"><NoticeBanner />{children}</div>
         </main>
       </AppContextMenu>
       <AIChatBot />
