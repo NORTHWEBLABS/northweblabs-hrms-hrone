@@ -215,12 +215,24 @@ export default function SiteEditor() {
   const [showLibrary, setShowLibrary] = useState(false);
   const [saving, setSaving] = useState<"" | "save" | "publish">("");
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [del, setDel] = useState<number | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
     fetch("/api/site").then((r) => r.json()).then((j) => {
-      setDoc(j.doc); setCanEdit(!!j.canEdit);
-      if (j.doc?.sections?.[0]) setTarget({ kind: "section", id: j.doc.sections[0].id });
+      const d = j.doc;
+      if (d?.sections) {
+        // guarantee every section has a unique id (old/duplicate ids broke delete + render)
+        const seen = new Set<string>();
+        d.sections = d.sections.map((s: any, i: number) => {
+          let id = s.id;
+          if (!id || seen.has(id)) id = `${s.type || "sec"}-${i}-${Math.random().toString(36).slice(2, 7)}`;
+          seen.add(id);
+          return { ...s, id };
+        });
+      }
+      setDoc(d); setCanEdit(!!j.canEdit);
+      if (d?.sections?.[0]) setTarget({ kind: "section", id: d.sections[0].id });
     }).catch(() => setCanEdit(false));
   }, []);
 
@@ -237,25 +249,24 @@ export default function SiteEditor() {
 
   const sections = doc?.sections || [];
 
-  /* mutators */
-  const updateSectionData = (id: string, path: string, val: any) => setDoc((d) => d ? { ...d, sections: d.sections.map((s) => s.id === id ? { ...s, data: setPath(s.data, path, val) } : s) } : d);
-  const toggleEnabled = (id: string) => setDoc((d) => d ? { ...d, sections: d.sections.map((s) => s.id === id ? { ...s, enabled: !s.enabled } : s) } : d);
-  const move = (id: string, dir: -1 | 1) => setDoc((d) => {
+  /* mutators — index-based so broken/duplicate ids can't break ops */
+  const updateSectionData = (i: number, path: string, val: any) => setDoc((d) => d ? { ...d, sections: d.sections.map((s, idx) => idx === i ? { ...s, data: setPath(s.data, path, val) } : s) } : d);
+  const toggleEnabled = (i: number) => setDoc((d) => d ? { ...d, sections: d.sections.map((s, idx) => idx === i ? { ...s, enabled: !s.enabled } : s) } : d);
+  const move = (i: number, dir: -1 | 1) => setDoc((d) => {
     if (!d) return d;
-    const i = d.sections.findIndex((s) => s.id === id); const j = i + dir;
+    const j = i + dir;
     if (i < 0 || j < 0 || j >= d.sections.length) return d;
     const n = d.sections.slice(); [n[i], n[j]] = [n[j], n[i]]; return { ...d, sections: n };
   });
-  const duplicate = (id: string) => setDoc((d) => {
+  const duplicate = (i: number) => setDoc((d) => {
     if (!d) return d;
-    const i = d.sections.findIndex((s) => s.id === id); if (i < 0) return d;
-    const src = d.sections[i];
-    const copy = { ...JSON.parse(JSON.stringify(src)), id: `${src.type}-${Date.now().toString(36)}` };
+    const src = d.sections[i]; if (!src) return d;
+    const copy = { ...JSON.parse(JSON.stringify(src)), id: `${src.type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}` };
     const n = d.sections.slice(); n.splice(i + 1, 0, copy); return { ...d, sections: n };
   });
-  const remove = (id: string) => setDoc((d) => d ? { ...d, sections: d.sections.filter((s) => s.id !== id) } : d);
+  const remove = (i: number) => setDoc((d) => d ? { ...d, sections: d.sections.filter((_, idx) => idx !== i) } : d);
   const addSection = (type: string) => {
-    const b = newBlock(type);
+    const b = { ...newBlock(type), id: `${type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}` };
     setDoc((d) => d ? { ...d, sections: [...d.sections, b] } : d);
     setTarget({ kind: "section", id: b.id }); setShowLibrary(false); setMView("inspector");
   };
@@ -293,7 +304,8 @@ export default function SiteEditor() {
       </div>
     );
 
-  const sel = target?.kind === "section" ? sections.find((s) => s.id === target.id) || null : null;
+  const selIdx = target?.kind === "section" ? sections.findIndex((s) => s.id === target.id) : -1;
+  const sel = selIdx >= 0 ? sections[selIdx] : null;
   const deviceW = device === "mobile" ? 390 : device === "tablet" ? 834 : 0; // 0 = full width
 
   const inspectorTitle = target?.kind === "theme" ? "Theme" : target?.kind === "header" ? "Header & nav" : sel ? blockLabel(sel.type) : "Inspector";
@@ -329,10 +341,10 @@ export default function SiteEditor() {
     }
     if (sel) {
       const def = BLOCK_TYPES[sel.type];
-      if (sel.type === "custom") return <CustomEditor data={sel.data} onChange={(p, v) => updateSectionData(sel.id, p, v)} />;
+      if (sel.type === "custom") return <CustomEditor data={sel.data} onChange={(p, v) => updateSectionData(selIdx, p, v)} />;
       if (!def) return <p className="text-xs text-slate-400 py-6 text-center">No editable fields.</p>;
       const groups = groupFields(def.fields);
-      return <Accordion items={groups.map((g) => ({ name: g.name, body: <div className="space-y-3">{g.fields.map((f) => <FieldInput key={f.path} field={f} value={getIn(sel.data, f.path)} onChange={(p, v) => updateSectionData(sel.id, p, v)} />)}</div> }))} />;
+      return <Accordion items={groups.map((g) => ({ name: g.name, body: <div className="space-y-3">{g.fields.map((f) => <FieldInput key={f.path} field={f} value={getIn(sel.data, f.path)} onChange={(p, v) => updateSectionData(selIdx, p, v)} />)}</div> }))} />;
     }
     return <p className="text-xs text-slate-400 py-6 text-center">Select a section to edit.</p>;
   })();
@@ -375,16 +387,16 @@ export default function SiteEditor() {
               {sections.map((s, i) => {
                 const active = target?.kind === "section" && target.id === s.id;
                 return (
-                  <li key={s.id}>
+                  <li key={s.id || `row-${i}`}>
                     <div className={`group rounded-lg border px-2 py-2 flex items-center gap-1 cursor-pointer ${active ? "border-indigo-300 bg-indigo-50/60" : "border-slate-200 hover:border-slate-300"}`} onClick={() => selectSection(s.id)}>
                       <GripVertical className="w-3.5 h-3.5 text-slate-300 shrink-0" />
                       <span className={`flex-1 min-w-0 text-sm font-medium truncate ${s.enabled ? "text-slate-800" : "text-slate-400 line-through"}`}>{blockLabel(s.type)}</span>
                       <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100">
-                        <button onClick={(e) => { e.stopPropagation(); move(s.id, -1); }} disabled={i === 0} className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
-                        <button onClick={(e) => { e.stopPropagation(); move(s.id, 1); }} disabled={i === sections.length - 1} className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
-                        <button onClick={(e) => { e.stopPropagation(); toggleEnabled(s.id); }} className="p-1 text-slate-400 hover:text-slate-700">{s.enabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}</button>
-                        <button onClick={(e) => { e.stopPropagation(); duplicate(s.id); }} className="p-1 text-slate-400 hover:text-slate-700"><Copy className="w-3.5 h-3.5" /></button>
-                        <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete \u201c${blockLabel(s.type)}\u201d?`)) { remove(s.id); if (active) setTarget(null); } }} className="p-1 text-slate-400 hover:text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                        <button onClick={(e) => { e.stopPropagation(); move(i, -1); }} disabled={i === 0} className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
+                        <button onClick={(e) => { e.stopPropagation(); move(i, 1); }} disabled={i === sections.length - 1} className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
+                        <button onClick={(e) => { e.stopPropagation(); toggleEnabled(i); }} className="p-1 text-slate-400 hover:text-slate-700">{s.enabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}</button>
+                        <button onClick={(e) => { e.stopPropagation(); duplicate(i); }} className="p-1 text-slate-400 hover:text-slate-700"><Copy className="w-3.5 h-3.5" /></button>
+                        <button onClick={(e) => { e.stopPropagation(); setDel(i); }} className="p-1 text-slate-400 hover:text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </div>
                   </li>
@@ -445,6 +457,20 @@ export default function SiteEditor() {
                   <div className="text-[11px] text-slate-400 mt-0.5">{b.type}</div>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* delete confirm modal */}
+      {del !== null && sections[del] && (
+        <div className="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm grid place-items-center p-4" onClick={() => setDel(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-1"><Trash2 className="w-4 h-4 text-rose-500" /><h3 className="text-base font-bold text-slate-900">Delete section</h3></div>
+            <p className="text-sm text-slate-500 mb-5">Remove <b className="text-slate-700">{blockLabel(sections[del].type)}</b> from the page? Publish to make it live.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDel(null)} className="px-4 py-2 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+              <button onClick={() => { const i = del; setDel(null); const wasActive = target?.kind === "section" && target.id === sections[i].id; remove(i); if (wasActive) setTarget(null); }} className="px-4 py-2 text-sm font-semibold text-white bg-rose-600 rounded-lg hover:bg-rose-700">Delete</button>
             </div>
           </div>
         </div>

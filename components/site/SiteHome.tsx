@@ -1,5 +1,6 @@
 import Link from "next/link";
 import React from "react";
+import { parseTemplate, defaultsOf, renderLiquid } from "@/lib/liquid";
 
 /* ============================================================
    Data-driven marketing homepage renderer.
@@ -181,8 +182,29 @@ function CtaBanner({ d }: { d: any }) {
   );
 }
 
+function CustomBlock({ d }: { d: any }) {
+  // New shape: Liquid template + schema settings
+  if (d?.template) {
+    const { body, schema } = parseTemplate(String(d.template));
+    const values = { ...defaultsOf(schema), ...(d?.settings || {}) };
+    return <section className="custom-block" dangerouslySetInnerHTML={{ __html: renderLiquid(body, values) }} />;
+  }
+  // Legacy shape: raw html/css with {{field}} placeholders
+  if (d?.html != null) {
+    const fields = d?.fields || {};
+    const filled = String(d.html).replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_m, k) => (fields[k] != null ? String(fields[k]) : ""));
+    return (
+      <section className="custom-block">
+        {d?.css ? <style dangerouslySetInnerHTML={{ __html: String(d.css) }} /> : null}
+        <div dangerouslySetInnerHTML={{ __html: filled }} />
+      </section>
+    );
+  }
+  return null;
+}
+
 const RENDERERS: Record<string, (p: { d: any }) => React.ReactNode> = {
-  hero: HeroBlock, moduleStrip: ModuleStrip, platform: Platform, speed: Speed, stats: Stats, ctaBanner: CtaBanner,
+  hero: HeroBlock, moduleStrip: ModuleStrip, platform: Platform, speed: Speed, stats: Stats, ctaBanner: CtaBanner, custom: CustomBlock,
 };
 
 const FONT_STACKS: Record<string, string> = {
@@ -213,9 +235,9 @@ export default function SiteHome({ theme, header, sections }: { theme: Theme; he
         <div className="header-actions"><Link href="/login" className="nav-link signin">{header.signinLabel}</Link><Link href={header.ctaHref} className="btn btn-primary btn-sm">{header.ctaLabel}</Link></div>
       </div></header>
 
-      {sections.filter(s => s.enabled).map((s) => {
+      {sections.filter(s => s.enabled).map((s, i) => {
         const R = RENDERERS[s.type];
-        return R ? <React.Fragment key={s.id}>{R({ d: s.data })}</React.Fragment> : null;
+        return R ? <React.Fragment key={`${s.id || s.type}-${i}`}>{R({ d: s.data })}</React.Fragment> : null;
       })}
 
       <style dangerouslySetInnerHTML={{ __html: themeCss + BASE_CSS }} />
