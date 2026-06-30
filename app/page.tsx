@@ -3,9 +3,8 @@ import Footer from "@/components/Footer";
 import { DEFAULT_THEME, DEFAULT_HEADER, DEFAULT_SECTIONS } from "@/lib/site-defaults";
 import { createClient } from "@supabase/supabase-js";
 
-// Static page, regenerated when the editor Publishes (route calls revalidatePath("/")),
-// with a periodic backstop so it can never get permanently stuck.
-export const revalidate = 300;
+// Always read the latest published doc so a Publish shows up immediately.
+export const dynamic = "force-dynamic";
 
 const SEED = { theme: DEFAULT_THEME, header: DEFAULT_HEADER, sections: DEFAULT_SECTIONS };
 
@@ -19,9 +18,7 @@ async function loadPublished() {
     const { data } = await sb.from("site_pages").select("published").eq("slug", "home").maybeSingle();
     const pub = data?.published as any;
     if (pub && Array.isArray(pub.sections) && pub.theme && pub.header) return pub;
-  } catch {
-    // table missing / build-time with no DB — fall through to defaults
-  }
+  } catch {}
   return SEED;
 }
 
