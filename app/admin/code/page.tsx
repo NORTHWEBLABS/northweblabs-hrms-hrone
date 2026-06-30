@@ -2,13 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { Loader2, Code2, Plus, RotateCcw, Check, AlertCircle, Settings2 } from "lucide-react";
+import {
+  Loader2, Code2, FilePlus2, RotateCcw, Check, AlertCircle, Settings2, Eye, EyeOff,
+  ArrowLeft, Maximize2, Minimize2, FileEdit,
+} from "lucide-react";
 import { Restricted } from "@/components/admin/AdminShell";
 import { parseTemplate, defaultsOf, renderLiquid, DEFAULT_SECTION_TEMPLATE } from "@/lib/liquid";
 
 const Monaco = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
-  loading: () => <div className="h-full grid place-items-center bg-slate-900"><Loader2 className="w-6 h-6 animate-spin text-slate-500" /></div>,
+  loading: () => <div className="h-full grid place-items-center bg-white"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div>,
 });
 
 const inputCls = "w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100";
@@ -33,11 +36,16 @@ export default function CodeEditorPage() {
   const [template, setTemplate] = useState(DEFAULT_SECTION_TEMPLATE);
   const [overrides, setOverrides] = useState<Record<string, any>>({});
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [tab, setTab] = useState<"settings" | "preview">("preview");
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelFull, setPanelFull] = useState(false);
+  const [tab, setTab] = useState<"preview" | "settings">("preview");
 
   useEffect(() => {
     fetch("/api/site").then(async (r) => { const j = await r.json(); setCanEdit(!!j.canEdit); }).catch(() => setCanEdit(false));
+    // preview collapsed by default on tablet / small screens
+    if (typeof window !== "undefined") setPanelOpen(window.innerWidth >= 1024);
   }, []);
   useEffect(() => { if (status) { const t = setTimeout(() => setStatus(null), 4000); return () => clearTimeout(t); } }, [status]);
 
@@ -46,7 +54,9 @@ export default function CodeEditorPage() {
   const html = useMemo(() => renderLiquid(body, values), [body, values]);
   const srcDoc = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">${html}</body></html>`;
 
-  const addToHomepage = async () => {
+  const onEdit = (v?: string) => { setTemplate(v || ""); setSaved(false); };
+
+  const addToDraft = async () => {
     setBusy(true); setStatus(null);
     try {
       const r = await fetch("/api/site"); const j = await r.json();
@@ -56,51 +66,80 @@ export default function CodeEditorPage() {
       const sr = await fetch("/api/site", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save", doc }) });
       const sj = await sr.json();
       if (!sr.ok) throw new Error(sj.error || "Save failed");
+      setSaved(true);
       setStatus({ ok: true, msg: "Added to homepage draft — open Site editor to position & publish." });
     } catch (e: any) { setStatus({ ok: false, msg: e.message || "Failed" }); }
     finally { setBusy(false); }
   };
 
-  if (canEdit === null) return <div className="grid place-items-center py-20"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div>;
+  if (canEdit === null) return <div className="fixed inset-0 grid place-items-center bg-slate-50"><Loader2 className="w-6 h-6 animate-spin text-indigo-500" /></div>;
   if (!canEdit) return <Restricted />;
 
   return (
-    <div className="mx-auto w-full max-w-[1200px]">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div className="flex items-center gap-2"><Code2 className="w-5 h-5 text-indigo-500" /><div><h2 className="text-sm font-bold text-slate-900">Section code editor</h2><p className="text-xs text-slate-400">Write Liquid + HTML with a {"{% schema %}"} block.</p></div></div>
-        <div className="flex items-center gap-2">
-          {status && <span className={`hidden sm:flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg ${status.ok ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}>{status.ok ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}{status.msg}</span>}
-          <button onClick={() => { setTemplate(DEFAULT_SECTION_TEMPLATE); setOverrides({}); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"><RotateCcw className="w-3.5 h-3.5" />Reset</button>
-          <button onClick={addToHomepage} disabled={busy} className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}Add to homepage</button>
+    <div className="fixed inset-0 flex flex-col bg-slate-100 text-slate-900">
+      {/* top bar */}
+      <header className="h-14 shrink-0 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-4 gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <a href="/admin" className="w-9 h-9 grid place-items-center rounded-lg text-slate-500 hover:bg-slate-100" title="Back to console"><ArrowLeft className="w-4 h-4" /></a>
+          <Code2 className="w-5 h-5 text-indigo-500 shrink-0" />
+          <span className="text-sm font-bold truncate hidden sm:block">Code editor</span>
+          <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">
+            <FileEdit className="w-3 h-3" />{saved ? "In draft" : "Draft"}
+          </span>
         </div>
-      </div>
-      {status && <div className={`sm:hidden mb-3 text-xs font-medium px-3 py-2 rounded-lg ${status.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{status.msg}</div>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {status && <span className={`hidden md:flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg ${status.ok ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}>{status.ok ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}{status.msg}</span>}
+          <button onClick={() => setPanelOpen((v) => !v)} className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50" title={panelOpen ? "Hide preview" : "Show preview"}>
+            {panelOpen ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}<span className="hidden sm:inline">Preview</span>
+          </button>
+          <button onClick={() => { setTemplate(DEFAULT_SECTION_TEMPLATE); setOverrides({}); setSaved(false); }} className="w-9 h-9 grid place-items-center text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50" title="Reset"><RotateCcw className="w-4 h-4" /></button>
+          <button onClick={addToDraft} disabled={busy} className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FilePlus2 className="w-3.5 h-3.5" />}<span className="hidden sm:inline">Add to draft</span></button>
+        </div>
+      </header>
+
+      {status && <div className={`md:hidden px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 ${status.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{status.ok ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}{status.msg}</div>}
+
+      <div className="flex-1 flex min-h-0 relative">
         {/* editor */}
-        <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900 h-[560px]">
-          <Monaco height="560px" defaultLanguage="html" theme="vs-dark" value={template} onChange={(v) => setTemplate(v || "")} options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, tabSize: 2 }} />
-        </div>
-
-        {/* right: settings + preview */}
-        <div className="flex flex-col h-[560px]">
-          <div className="flex gap-1 mb-3">
-            {([["preview", "Preview"], ["settings", "Settings"]] as [typeof tab, string][]).map(([k, label]) => (
-              <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${tab === k ? "bg-indigo-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}>{label}</button>
-            ))}
-            {error && <span className="ml-auto text-xs text-rose-500 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" />{error}</span>}
+        <div className={`${panelFull ? "hidden" : "flex"} flex-1 min-w-0 p-3`}>
+          <div className="h-full w-full rounded-xl overflow-hidden border border-slate-200 bg-white">
+            <Monaco height="100%" defaultLanguage="html" theme="vs" value={template} onChange={onEdit} options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, tabSize: 2, padding: { top: 12 }, lineNumbersMinChars: 3 }} />
           </div>
-
-          {tab === "preview" ? (
-            <iframe title="preview" srcDoc={srcDoc} className="flex-1 w-full rounded-xl border border-slate-200 bg-white" />
-          ) : (
-            <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-              <div className="flex items-center gap-1.5 text-slate-400 mb-1"><Settings2 className="w-4 h-4" /><span className="text-xs font-bold uppercase tracking-wide">{schema?.name || "Settings"}</span></div>
-              {(schema?.settings || []).length === 0 ? <p className="text-xs text-slate-400">No settings in the schema yet.</p> :
-                (schema!.settings).map((s: any) => <SettingField key={s.id} s={s} value={values[s.id]} onChange={(v) => setOverrides((o) => ({ ...o, [s.id]: v }))} />)}
-            </div>
-          )}
         </div>
+
+        {/* backdrop on small screens when panel open */}
+        {panelOpen && !panelFull && <div className="lg:hidden absolute inset-0 bg-black/30 z-10" onClick={() => setPanelOpen(false)} />}
+
+        {/* preview / settings panel */}
+        {panelOpen && (
+          <aside className={`flex flex-col bg-white border-l border-slate-200 min-h-0 z-20
+            ${panelFull ? "flex-1" : "absolute lg:static inset-y-0 right-0 w-full sm:w-[480px] shadow-2xl lg:shadow-none"}`}>
+            <div className="h-11 shrink-0 border-b border-slate-100 flex items-center justify-between px-2.5">
+              <div className="flex gap-1">
+                {([["preview", "Preview"], ["settings", "Settings"]] as [typeof tab, string][]).map(([k, label]) => (
+                  <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${tab === k ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-50"}`}>{label}</button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1">
+                {error && <span className="text-[11px] text-rose-500 flex items-center gap-1 mr-1"><AlertCircle className="w-3.5 h-3.5" />schema</span>}
+                <button onClick={() => setPanelFull((v) => !v)} className="hidden lg:grid w-8 h-8 place-items-center text-slate-400 hover:text-slate-700 rounded-lg" title={panelFull ? "Split view" : "Full-screen preview"}>{panelFull ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}</button>
+                <button onClick={() => setPanelOpen(false)} className="lg:hidden w-8 h-8 grid place-items-center text-slate-400 rounded-lg"><EyeOff className="w-4 h-4" /></button>
+              </div>
+            </div>
+
+            {tab === "preview" ? (
+              <iframe title="preview" srcDoc={srcDoc} className="flex-1 w-full bg-white" />
+            ) : (
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div className="flex items-center gap-1.5 text-slate-400 mb-1"><Settings2 className="w-4 h-4" /><span className="text-xs font-bold uppercase tracking-wide">{schema?.name || "Settings"}</span></div>
+                {error && <p className="text-xs text-rose-500">{error}</p>}
+                {(schema?.settings || []).length === 0 ? <p className="text-xs text-slate-400">No settings in the schema yet.</p> :
+                  (schema!.settings).map((s: any) => <SettingField key={s.id} s={s} value={values[s.id]} onChange={(v) => setOverrides((o) => ({ ...o, [s.id]: v }))} />)}
+              </div>
+            )}
+          </aside>
+        )}
       </div>
     </div>
   );
