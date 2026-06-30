@@ -47,6 +47,8 @@ export default function CodeEditorPage() {
   const [panelFull, setPanelFull] = useState(false);
   const [sidebar, setSidebar] = useState(true);
   const [tab, setTab] = useState<"preview" | "settings">("preview");
+  const [modal, setModal] = useState<null | { kind: "new" | "saveas" | "delete"; name?: string }>(null);
+  const [modalName, setModalName] = useState("");
 
   const listFiles = useCallback(async () => {
     const r = await fetch("/api/site/files");
@@ -86,9 +88,7 @@ export default function CodeEditorPage() {
 
   const onEdit = (v?: string) => { setTemplate(v || ""); setDirty(true); };
 
-  const saveFile = async (asName?: string) => {
-    let name = asName || active;
-    if (!name) { const inp = window.prompt("File name", "section.liquid"); if (!inp) return; name = ensureExt(inp.trim()); }
+  const saveFile = async (name: string) => {
     setBusy(true); setStatus(null);
     try {
       const r = await fetch("/api/site/files", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, content: template }) });
@@ -102,22 +102,27 @@ export default function CodeEditorPage() {
     finally { setBusy(false); }
   };
 
-  const newFile = async () => {
-    const inp = window.prompt("New section file name", "my-section.liquid");
-    if (!inp) return;
-    const name = ensureExt(inp.trim());
-    setTemplate(DEFAULT_SECTION_TEMPLATE); setOverrides({}); setActive(name);
-    await saveFile(name);
-  };
+  const onSaveClick = () => { if (active) saveFile(active); else { setModalName("section.liquid"); setModal({ kind: "saveas" }); } };
+  const openNew = () => { setModalName("my-section.liquid"); setModal({ kind: "new" }); };
+  const askDelete = (name: string) => setModal({ kind: "delete", name });
 
-  const deleteFile = async (name: string) => {
-    if (!confirm(`Delete ${name}? This removes the file from storage.`)) return;
+  const performDelete = async (name: string) => {
     setBusy(true);
     try {
       await fetch(`/api/site/files?name=${encodeURIComponent(name)}`, { method: "DELETE" });
       const list = await listFiles();
       if (active === name) { if (list.length) openFile(list[0]); else { setActive(null); setTemplate(DEFAULT_SECTION_TEMPLATE); setDirty(false); } }
     } finally { setBusy(false); }
+  };
+
+  const confirmModal = async () => {
+    if (!modal) return;
+    if (modal.kind === "delete" && modal.name) { const n = modal.name; setModal(null); await performDelete(n); return; }
+    const name = ensureExt(modalName.trim());
+    if (!name || name === ".liquid") return;
+    setModal(null);
+    if (modal.kind === "new") { setTemplate(DEFAULT_SECTION_TEMPLATE); setOverrides({}); setActive(name); await saveFile(name); }
+    else { setActive(name); await saveFile(name); }
   };
 
   const addToDraft = async () => {
@@ -152,7 +157,7 @@ export default function CodeEditorPage() {
         <div className="flex items-center gap-1.5 sm:gap-2">
           {status && <span className={`hidden md:flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg ${status.ok ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}>{status.ok ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}{status.msg}</span>}
           <button onClick={() => setPanelOpen((v) => !v)} className="w-9 h-9 grid place-items-center text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50" title={panelOpen ? "Hide preview" : "Show preview"}>{panelOpen ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-          <button onClick={() => saveFile()} disabled={busy} className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50">{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}<span className="hidden sm:inline">Save</span></button>
+          <button onClick={onSaveClick} disabled={busy} className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50">{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}<span className="hidden sm:inline">Save</span></button>
           <button onClick={addToDraft} disabled={busy} className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"><FilePlus2 className="w-3.5 h-3.5" /><span className="hidden sm:inline">Add to draft</span></button>
         </div>
       </header>
@@ -165,7 +170,7 @@ export default function CodeEditorPage() {
           <aside className="w-56 shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col min-h-0 absolute md:static inset-y-0 left-0 z-30 md:z-0 shadow-xl md:shadow-none">
             <div className="h-10 px-3 flex items-center justify-between border-b border-slate-200">
               <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400 flex items-center gap-1.5"><FolderOpen className="w-3.5 h-3.5" />Sections</span>
-              <button onClick={newFile} className="w-6 h-6 grid place-items-center rounded text-slate-500 hover:bg-slate-200" title="New file"><Plus className="w-4 h-4" /></button>
+              <button onClick={openNew} className="w-6 h-6 grid place-items-center rounded text-slate-500 hover:bg-slate-200" title="New file"><Plus className="w-4 h-4" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-1.5">
               {needsBucket ? (
@@ -176,7 +181,7 @@ export default function CodeEditorPage() {
                 <div key={f} className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer text-sm ${active === f ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100"}`} onClick={() => openFile(f)}>
                   <FileCode2 className="w-3.5 h-3.5 shrink-0" />
                   <span className="flex-1 truncate">{f}</span>
-                  <button onClick={(e) => { e.stopPropagation(); deleteFile(f); }} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); askDelete(f); }} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               ))}
             </div>
@@ -220,6 +225,34 @@ export default function CodeEditorPage() {
           </aside>
         )}
       </div>
+
+      {/* styled modal (replaces native prompt/confirm) */}
+      {modal && (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-900/40 backdrop-blur-sm p-4" onClick={() => setModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+            {modal.kind === "delete" ? (
+              <>
+                <div className="flex items-center gap-2 mb-1"><Trash2 className="w-4 h-4 text-rose-500" /><h3 className="text-base font-bold text-slate-900">Delete file</h3></div>
+                <p className="text-sm text-slate-500 mb-5">Delete <b className="text-slate-700">{modal.name}</b> from storage? This can’t be undone.</p>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setModal(null)} className="px-4 py-2 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                  <button onClick={confirmModal} className="px-4 py-2 text-sm font-semibold text-white bg-rose-600 rounded-lg hover:bg-rose-700">Delete</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-base font-bold text-slate-900 mb-3">{modal.kind === "new" ? "New section file" : "Save as"}</h3>
+                <input autoFocus value={modalName} onChange={(e) => setModalName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") confirmModal(); }} className={inputCls} placeholder="my-section.liquid" />
+                <p className="text-[11px] text-slate-400 mt-1">.liquid is added automatically.</p>
+                <div className="flex justify-end gap-2 mt-5">
+                  <button onClick={() => setModal(null)} className="px-4 py-2 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                  <button onClick={confirmModal} className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">{modal.kind === "new" ? "Create" : "Save"}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
