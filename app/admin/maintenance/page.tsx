@@ -7,6 +7,7 @@ import { Restricted } from "@/components/admin/AdminShell";
 export default function MaintenancePage() {
   const [denied, setDenied] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [needsSql, setNeedsSql] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -16,6 +17,7 @@ export default function MaintenancePage() {
     fetch("/api/admin/manage?view=settings").then(async (r) => {
       if (r.status === 403) { setDenied(true); return; }
       const j = await r.json();
+      if (j.needsSql) { setNeedsSql(true); setLoaded(true); return; }
       setEnabled(!!j.maintenance?.enabled); setMessage(j.maintenance?.message || ""); setLoaded(true);
     }).catch(() => setDenied(true));
   }, []);
@@ -25,9 +27,11 @@ export default function MaintenancePage() {
     setBusy(true); setStatus(null);
     try {
       const r = await fetch("/api/admin/manage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: "settings", action: "maintenance", enabled, message }) });
-      if (!r.ok) throw new Error();
+      const j = await r.json().catch(() => ({}));
+      if (j.needsSql) { setNeedsSql(true); throw new Error("Run admin-extras.sql first"); }
+      if (j.error) throw new Error(j.error);
       setStatus({ ok: true, msg: "Saved" });
-    } catch { setStatus({ ok: false, msg: "Failed to save" }); }
+    } catch (e: any) { setStatus({ ok: false, msg: e.message || "Failed to save" }); }
     finally { setBusy(false); }
   };
 
@@ -36,6 +40,7 @@ export default function MaintenancePage() {
 
   return (
     <div className="mx-auto w-full max-w-[640px]">
+      {needsSql && <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">This table isn't set up yet. Run <code className="px-1 bg-amber-100 rounded">admin-extras.sql</code> in the Supabase SQL editor, then reload.</div>}
       <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm">
         <div className="flex items-center gap-2 mb-1"><Wrench className="w-5 h-5 text-amber-500" /><h2 className="text-base font-bold text-slate-900">Maintenance mode</h2></div>
         <p className="text-sm text-slate-400 mb-5">When on, you can show a banner across tenant dashboards. (Display wiring is added where your app layout renders.)</p>

@@ -12,22 +12,28 @@ const levelColor = (l: string) => l === "critical" ? "bg-rose-50 text-rose-600" 
 export default function AnnouncementsPage() {
   const [list, setList] = useState<Ann[] | null>(null);
   const [denied, setDenied] = useState(false);
+  const [needsSql, setNeedsSql] = useState(false);
+  const [err, setErr] = useState("");
   const [form, setForm] = useState({ title: "", body: "", level: "info", audience: "all" });
   const [busy, setBusy] = useState(false);
 
   const load = () => fetch("/api/admin/manage?view=announcements").then(async (r) => {
     if (r.status === 403) { setDenied(true); return; }
-    const j = await r.json(); setList(j.announcements || []);
+    const j = await r.json();
+    if (j.needsSql) { setNeedsSql(true); setList([]); return; }
+    setList(j.announcements || []);
   }).catch(() => setDenied(true));
   useEffect(() => { load(); }, []);
 
-  const post = async (payload: any) => { setBusy(true); try { await fetch("/api/admin/manage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); await load(); } finally { setBusy(false); } };
+  const post = async (payload: any) => { setBusy(true); setErr(""); try { const r = await fetch("/api/admin/manage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const j = await r.json().catch(() => ({})); if (j.needsSql) setNeedsSql(true); else if (j.error) setErr(j.error); await load(); } finally { setBusy(false); } };
   const create = async () => { if (!form.title.trim()) return; await post({ scope: "announcement", action: "create", ...form }); setForm({ title: "", body: "", level: "info", audience: "all" }); };
 
   if (denied) return <Restricted />;
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6">
+      {needsSql && <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">These tables aren't set up yet. Run <code className="px-1 bg-amber-100 rounded">admin-extras.sql</code> in the Supabase SQL editor, then reload.</div>}
+      {err && <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-700">{err}</div>}
       {/* composer */}
       <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
         <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 mb-4"><Megaphone className="w-4 h-4 text-slate-400" />New announcement</h2>

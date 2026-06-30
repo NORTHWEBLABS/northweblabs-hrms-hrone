@@ -166,6 +166,38 @@ function Accordion({ items }: { items: { name: string; body: React.ReactNode }[]
   );
 }
 
+/* ---------------- custom code section editor ---------------- */
+const codeCls = "w-full px-3 py-2.5 bg-slate-900 text-slate-100 border border-slate-700 rounded-lg text-[12px] font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500/40 resize-y";
+function CustomEditor({ data, onChange }: { data: any; onChange: (path: string, v: any) => void }) {
+  const html = String(data?.html || "");
+  const css = String(data?.css || "");
+  const fields = data?.fields || {};
+  const names = Array.from(new Set([...html.matchAll(/\{\{\s*([\w-]+)\s*\}\}/g)].map((m) => m[1])));
+  return (
+    <Accordion items={[
+      {
+        name: "Fields",
+        body: names.length === 0
+          ? <p className="text-xs text-slate-400">Add <code className="px-1 bg-slate-100 rounded">{"{{placeholder}}"}</code> tokens in your HTML — they appear here as editable fields.</p>
+          : <>
+            <p className="text-[11px] text-slate-400 mb-1">Imported from your code.</p>
+            {names.map((n) => (
+              <div key={n}><Lbl>{n}</Lbl><input className={inputCls} value={fields[n] ?? ""} onChange={(e) => onChange(`fields.${n}`, e.target.value)} /></div>
+            ))}
+          </>,
+      },
+      {
+        name: "HTML",
+        body: <><textarea spellCheck={false} rows={12} className={codeCls} value={html} onChange={(e) => onChange("html", e.target.value)} /><p className="text-[10px] text-slate-400 mt-1">Any HTML. Use {"{{name}}"} for editable fields.</p></>,
+      },
+      {
+        name: "CSS",
+        body: <><textarea spellCheck={false} rows={8} className={codeCls} value={css} onChange={(e) => onChange("css", e.target.value)} placeholder=".my-class { color: #4f46e5; }" /><p className="text-[10px] text-slate-400 mt-1">Optional. Scope your classes to avoid clashes.</p></>,
+      },
+    ]} />
+  );
+}
+
 /* ============================================================
    Editor
    ============================================================ */
@@ -292,6 +324,7 @@ export default function SiteEditor() {
     }
     if (sel) {
       const def = BLOCK_TYPES[sel.type];
+      if (sel.type === "custom") return <CustomEditor data={sel.data} onChange={(p, v) => updateSectionData(sel.id, p, v)} />;
       if (!def) return <p className="text-xs text-slate-400 py-6 text-center">No editable fields.</p>;
       const groups = groupFields(def.fields);
       return <Accordion items={groups.map((g) => ({ name: g.name, body: <div className="space-y-3">{g.fields.map((f) => <FieldInput key={f.path} field={f} value={getIn(sel.data, f.path)} onChange={(p, v) => updateSectionData(sel.id, p, v)} />)}</div> }))} />;

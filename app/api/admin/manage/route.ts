@@ -11,6 +11,13 @@ function pick(re: RegExp, html: string): string | null {
   return m ? (m[1] || "").trim() : null;
 }
 
+// Build a JSON-safe error payload; flag missing tables so the UI can prompt to run the SQL.
+function tableErr(error: any) {
+  const msg = error?.message || "Database error";
+  const missing = error?.code === "42P01" || /does not exist|could not find the table/i.test(msg);
+  return { error: msg, needsSql: missing };
+}
+
 async function seoReport() {
   try {
     const t0 = Date.now();
@@ -72,17 +79,20 @@ export async function GET(req: NextRequest) {
     }
 
     if (view === "announcements") {
-      const { data } = await sb.from("announcements").select("*").order("created_at", { ascending: false });
+      const { data, error } = await sb.from("announcements").select("*").order("created_at", { ascending: false });
+      if (error) return NextResponse.json(tableErr(error));
       return NextResponse.json({ announcements: data || [] });
     }
 
     if (view === "settings") {
-      const { data } = await sb.from("app_settings").select("value").eq("key", "maintenance").maybeSingle();
+      const { data, error } = await sb.from("app_settings").select("value").eq("key", "maintenance").maybeSingle();
+      if (error) return NextResponse.json(tableErr(error));
       return NextResponse.json({ maintenance: data?.value || { enabled: false, message: "" } });
     }
 
     if (view === "billing") {
-      const { data: plans } = await sb.from("plans").select("*").order("sort");
+      const { data: plans, error: pe } = await sb.from("plans").select("*").order("sort");
+      if (pe) return NextResponse.json(tableErr(pe));
       const { data: orgs } = await sb.from("organizations").select("id, name").order("name");
       const { data: subs } = await sb.from("org_subscriptions").select("org_id, plan_id, status, trial_ends");
       const subMap: Record<string, any> = {};
@@ -142,6 +152,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Failed" }, { status: 500 });
+    const { error, needsSql } = tableErr(e);
+    return NextResponse.json({ error, needsSql }, { status: needsSql ? 200 : 500 });
   }
 }
